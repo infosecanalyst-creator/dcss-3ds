@@ -215,6 +215,14 @@ rw("sqldbm.cc",
    "                nullptr\n#endif\n",
    "unix-none")
 
+# sqlite: device paths ("sdmc:/...") are absolute; without this SQLite glues the
+# cwd in front ("sdmc:/3ds/crawl//sdmc:/3ds/...") and every DB open fails
+rw("contrib/sqlite/sqlite3.c",
+   "  zOut[nOut-1] = '\\0';\n  if( zPath[0]=='/' ){\n",
+   "  zOut[nOut-1] = '\\0';\n  /* 3DS: \"sdmc:/...\" is absolute too -- don't prepend the cwd to it */\n"
+   "  if( zPath[0]=='/' || strstr(zPath, \":/\")!=0 ){\n",
+   "is absolute too")
+
 path = os.path.join(SRC, "Makefile")
 t = open(path, encoding="utf-8").read()
 if "crawl.3dsx:" not in t:
