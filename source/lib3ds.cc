@@ -39,6 +39,7 @@
 #include <cstdio>
 #include <cstring>
 #include <deque>
+#include <sqlite3.h>
 
 #include "cio.h"
 #include "defines.h"
@@ -783,8 +784,35 @@ void lib3ds_early_init()
     mkdir("sdmc:/3ds/crawl/saves", 0777);
     mkdir("sdmc:/3ds/crawl/morgue", 0777);
 
+    // SQLite's default unix VFS locks files with fcntl(), which newlib on the
+    // 3DS doesn't implement: the first database write fails and Crawl exits.
+    // Only Crawl touches its databases, so use the no-locking VFS.
+    if (sqlite3_vfs *nolock = sqlite3_vfs_find("unix-none"))
+        sqlite3_vfs_register(nolock, 1);
+
     // Give the rest of startup the New 3DS clock.
     osSetSpeedupEnable(true);
+}
+
+// Called from end() on a fatal exit: show the reason and wait, otherwise the
+// app returns to the Homebrew Launcher before the message can be read.
+void lib3ds_fatal_wait(const char *msg)
+{
+    if (!gfx_inited)
+    {
+        gfxInitDefault();
+        gfx_inited = true;
+    }
+    consoleInit(GFX_BOTTOM, nullptr);
+    printf("\x1b[2J\x1b[1;1HDCSS 3DS stopped with an error:\n\n%s\n\nPress START to exit.\n", msg ? msg : "");
+    while (aptMainLoop())
+    {
+        hidScanInput();
+        if (hidKeysDown() & KEY_START) break;
+        gfxFlushBuffers();
+        gfxSwapBuffers();
+        gspWaitForVBlank();
+    }
 }
 
 // ---------------------------------------------------------------------------
@@ -833,7 +861,7 @@ void console_shutdown()
     if (!inited)
         return;
     inited = false;
-    romfsExit();
+    // no romfsExit(): files may still be open and are closed after this
     gfxExit();
     gfx_inited = false;
 }

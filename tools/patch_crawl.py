@@ -88,6 +88,18 @@ rw("syscalls.cc",
    "#else\n    /* Try opening from various system provided (hopefully) CSPRNGs */\n",
    "PS_GenerateRandomBytes(buf, len)")
 
+# ------------------------------------------------------------------- end.cc
+# Show fatal errors on the 3DS and wait for START (otherwise they flash past).
+rw("end.cc",
+   "        databaseSystemShutdown();\n",
+   "        databaseSystemShutdown();\n"
+   "#ifdef TARGET_OS_3DS\n"
+   "        extern void lib3ds_fatal_wait(const char *msg);\n"
+   "        if (exit_code)\n"
+   "            lib3ds_fatal_wait(error.c_str());\n"
+   "#endif\n",
+   "lib3ds_fatal_wait(error.c_str())")
+
 # --------------------------------------------------------------- AppHdr.h
 rw("AppHdr.h",
    "#elif defined(TARGET_OS_WINDOWS)\n    #if defined(TARGET_COMPILER_MINGW)",
