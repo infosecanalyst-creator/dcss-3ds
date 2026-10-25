@@ -1,0 +1,46 @@
+#
+# Nintendo 3DS cross build (dcss-3ds port). Usage:
+#     make TARGET_3DS=y -j8 3dsx      # .3dsx for the Homebrew Launcher
+#     make TARGET_3DS=y -j8 cia       # .cia (needs makerom; New 3DS ext. memory)
+# Requires DEVKITPRO (and DEVKITARM) in the environment, devkitARM, libctru.
+#
+ifdef TARGET_3DS
+  ifndef DEVKITPRO
+    $(error TARGET_3DS build needs DEVKITPRO set, e.g. export DEVKITPRO=/opt/devkitpro)
+  endif
+  ifndef DEVKITARM
+    DEVKITARM := $(DEVKITPRO)/devkitARM
+  endif
+  export PATH := $(DEVKITARM)/bin:$(DEVKITPRO)/tools/bin:$(PATH)
+  CROSSHOST := arm-none-eabi
+  NO_NCURSES := YesPlease
+  NO_PKGCONFIG := YesPlease
+  NO_AUTO_OPT := YesPlease
+  BUILD_LUA := yes
+  BUILD_SQLITE := yes
+  BUILD_ZLIB := YesPlease
+  BUILD_PCRE := YesPlease
+  # Never let the host prefix logic define DATA_DIR_PATH/SAVE_DIR_PATH:
+  prefix :=
+  DATADIR :=
+  SAVEDIR :=
+  # The game data is baked into romfs; saves live on the SD card.
+  INSTALL_PATH_CFLAGS_L += -DDATA_DIR_PATH=\"romfs:/\" -DSAVE_DIR_PATH=\"sdmc:/3ds/crawl\"
+  ARCH_3DS := -march=armv6k -mtune=mpcore -mfloat-abi=hard -mtp=soft
+  EXTERNAL_FLAGS += $(ARCH_3DS) -D__3DS__ -DARM11 -D_GNU_SOURCE -D_DEFAULT_SOURCE -ffunction-sections -fdata-sections -fomit-frame-pointer
+  # arm-none-eabi types int32_t as 'long'; crawl (like every platform it
+  # targets) assumes int32_t == int and uint32_t == unsigned. Same width and
+  # ABI, so retype them for this build (C++ type identity only).
+  EXTERNAL_FLAGS += -U__INT32_TYPE__ -D__INT32_TYPE__=int -U__UINT32_TYPE__ '-D__UINT32_TYPE__=unsigned int' \
+                    -U__INT_LEAST32_TYPE__ -D__INT_LEAST32_TYPE__=int -U__UINT_LEAST32_TYPE__ '-D__UINT_LEAST32_TYPE__=unsigned int' \
+                    -U__INT32_C -D__INT32_C\(c\)=c -U__UINT32_C -D__UINT32_C\(c\)=c\#\#U
+  # SQLite (contrib) on newlib: single-threaded, no WAL/mmap, temp tables in RAM
+  EXTERNAL_FLAGS += -DSQLITE_THREADSAFE=0 -DSQLITE_OMIT_WAL -DSQLITE_TEMP_STORE=3 \
+                    -DSQLITE_OMIT_LOAD_EXTENSION -DSQLITE_DISABLE_LFS -DSQLITE_MAX_MMAP_SIZE=0
+  # TARGET_OS_3DS is defined by platform.h from __3DS__
+  INCLUDES_L += -isystem $(DEVKITPRO)/libctru/include -isystem $(DEVKITPRO)/portlibs/3ds/include
+  EXTERNAL_LDFLAGS += -specs=3dsx.specs $(ARCH_3DS) -L$(DEVKITPRO)/libctru/lib -Wl,--gc-sections
+  EXTRA_LIBS += -lctru -lm
+  GAME := crawl.elf
+endif
+

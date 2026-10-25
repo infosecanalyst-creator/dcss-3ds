@@ -1,0 +1,23 @@
+# build outputs
+*.o
+*.d
+*.elf
+*.3dsx
+*.smdh
+*.cia
+build/
+romfs/
+obj3ds/
+micropolis-headless
+*.ppm
+# upstream sources fetched/trimmed by the build scripts (not ours to commit)
+scummvm/
+scummvm-trim/
+crawl/
+OpenXcom/
+yaml-cpp/
+# never commit game data (copyrighted)
+xcom-data/
+UFO/
+ULTIMA4/
+ULTIMA6/

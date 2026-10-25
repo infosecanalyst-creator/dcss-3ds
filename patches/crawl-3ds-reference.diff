@@ -1,0 +1,304 @@
+diff --git a/crawl-ref/source/AppHdr.h b/crawl-ref/source/AppHdr.h
+index de36640..73185fe 100644
+--- a/crawl-ref/source/AppHdr.h
++++ b/crawl-ref/source/AppHdr.h
+@@ -107,6 +107,14 @@ static inline double pow(int x, double y) { return std::pow((double)x, y); }
+ 
+     #include "libunix.h"
+ 
++#elif defined(TARGET_OS_3DS)
++    // Nintendo 3DS (devkitARM + libctru). Not UNIX: no signals, no
++    // curses, no file locking; PCRE comes from contrib.
++    #define FILE_SEPARATOR '/'
++    #ifndef REGEX_PCRE
++    #define REGEX_PCRE
++    #endif
++    #include "lib3ds.h"
+ #elif defined(TARGET_OS_WINDOWS)
+     #if defined(TARGET_COMPILER_MINGW)
+         #define USE_UNIX_SIGNALS
+diff --git a/crawl-ref/source/Makefile b/crawl-ref/source/Makefile
+index 0b341fe..a7cf8db 100644
+--- a/crawl-ref/source/Makefile
++++ b/crawl-ref/source/Makefile
+@@ -109,6 +109,46 @@ MAKEFLAGS += -rR # This only works for recursive makes, i.e. contribs ...
+         monster catch2-tests plug-and-play-tests \
+         crawl-universal crawl-arm64-apple-macos11 crawl-x86_64-apple-macos10.7 clean-mac
+ 
++#
++# Nintendo 3DS cross build (dcss-3ds port). Usage:
++#     make TARGET_3DS=y -j8 3dsx      # .3dsx for the Homebrew Launcher
++#     make TARGET_3DS=y -j8 cia       # .cia (needs makerom; New 3DS ext. memory)
++# Requires DEVKITPRO (and DEVKITARM) in the environment, devkitARM, libctru.
++#
++ifdef TARGET_3DS
++  ifndef DEVKITPRO
++    $(error TARGET_3DS build needs DEVKITPRO set, e.g. export DEVKITPRO=/opt/devkitpro)
++  endif
++  ifndef DEVKITARM
++    DEVKITARM := $(DEVKITPRO)/devkitARM
++  endif
++  export PATH := $(DEVKITARM)/bin:$(DEVKITPRO)/tools/bin:$(PATH)
++  CROSSHOST := arm-none-eabi
++  NO_NCURSES := YesPlease
++  NO_PKGCONFIG := YesPlease
++  NO_AUTO_OPT := YesPlease
++  BUILD_LUA := yes
++  BUILD_SQLITE := yes
++  BUILD_ZLIB := YesPlease
++  BUILD_PCRE := YesPlease
++  # Never let the host prefix logic define DATA_DIR_PATH/SAVE_DIR_PATH:
++  prefix :=
++  DATADIR :=
++  SAVEDIR :=
++  # The game data is baked into romfs; saves live on the SD card.
++  INSTALL_PATH_CFLAGS_L += -DDATA_DIR_PATH=\"romfs:/\" -DSAVE_DIR_PATH=\"sdmc:/3ds/crawl\"
++  ARCH_3DS := -march=armv6k -mtune=mpcore -mfloat-abi=hard -mtp=soft
++  EXTERNAL_FLAGS += $(ARCH_3DS) -D__3DS__ -DARM11 -ffunction-sections -fdata-sections -fomit-frame-pointer
++  # SQLite (contrib) on newlib: single-threaded, no WAL/mmap, temp tables in RAM
++  EXTERNAL_FLAGS += -DSQLITE_THREADSAFE=0 -DSQLITE_OMIT_WAL -DSQLITE_TEMP_STORE=3 \
++                    -DSQLITE_OMIT_LOAD_EXTENSION -DSQLITE_DISABLE_LFS -DSQLITE_MAX_MMAP_SIZE=0
++  EXTERNAL_DEFINES += -DTARGET_OS_3DS
++  INCLUDES_L += -isystem $(DEVKITPRO)/libctru/include -isystem $(DEVKITPRO)/portlibs/3ds/include
++  LDFLAGS += -specs=3dsx.specs $(ARCH_3DS) -L$(DEVKITPRO)/libctru/lib -Wl,--gc-sections
++  EXTRA_LIBS += -lctru -lm
++  GAME := crawl.elf
++endif
++
+ include Makefile.obj
+ 
+ #
+@@ -232,6 +272,9 @@ ifdef CROSSHOST
+ 	ifneq (,$(findstring mingw,$(CROSSHOST)))
+ 		uname_S=MINGW32
+ 	endif
++	ifdef TARGET_3DS
++		uname_S=3DS
++	endif
+ 
+ endif
+ 
+@@ -385,19 +428,25 @@ ifdef WIN32
+ EXTRA_OBJECTS += icon.o
+ else
+ ifndef ANDROID
++ifndef TARGET_3DS
+ ifneq ($(uname_S),Haiku)
+ EXTRA_LIBS += -pthread
+ endif
+ endif
+ endif
++endif
+ 
+ ifndef TILES
++ifdef TARGET_3DS
++OBJECTS += lib3ds.o
++else
+ ifdef NEED_LIBW32C
+ OBJECTS += libw32c.o
+ else
+ OBJECTS += libunix.o
+ endif
+ endif
++endif
+ 
+ ifdef USE_MERGE_BASE
+ MERGE_BASE := $(shell git merge-base HEAD $(USE_MERGE_BASE))
+@@ -2177,3 +2226,59 @@ util/fake_pty: util/fake_pty.c
+ builddb: $(GAME)
+ 	./$(GAME) --builddb --reset-cache
+ .PHONY: builddb
++
++#############################################################################
++# Nintendo 3DS packaging (dcss-3ds port)
++#
++#   make TARGET_3DS=y 3dsx   -> crawl.3dsx + crawl.smdh (Homebrew Launcher)
++#   make TARGET_3DS=y cia    -> crawl.cia (install with FBI; gets the
++#                               New 3DS 124 MB extended memory mode)
++#
++# romfs/ is assembled from dat/, docs/ and settings/ so the game finds its
++# data at romfs:/dat/... (DATA_DIR_PATH=romfs:/).
++#############################################################################
++ifdef TARGET_3DS
++
++ROMFS_DIR   := romfs
++SMDH_TITLE  := Dungeon Crawl Stone Soup
++SMDH_DESC   := DCSS $(SRC_VERSION) for New 3DS
++SMDH_AUTHOR := Crawl devteam / 3DS port
++ICON_PNG    := 3ds/icon.png
++RSF         := 3ds/crawl.rsf
++
++.PHONY: romfs 3dsx cia clean-3ds
++
++romfs: dat/dlua/tags.lua
++	@echo "    ROMFS   $(ROMFS_DIR)/"
++	@rm -rf $(ROMFS_DIR)
++	@mkdir -p $(ROMFS_DIR)/dat $(ROMFS_DIR)/docs $(ROMFS_DIR)/settings
++	@cp -r dat/clua dat/dlua dat/des dat/descript dat/database dat/defaults \
++	       dat/dist_bones $(ROMFS_DIR)/dat/
++	@cp -r ../settings/* $(ROMFS_DIR)/settings/ 2>/dev/null || true
++	@cp ../docs/*.txt $(ROMFS_DIR)/docs/ 2>/dev/null || true
++	@find $(ROMFS_DIR) -name '*.png' -delete
++	@du -sh $(ROMFS_DIR)
++
++crawl.smdh: $(ICON_PNG)
++	smdhtool --create "$(SMDH_TITLE)" "$(SMDH_DESC)" "$(SMDH_AUTHOR)" $(ICON_PNG) $@
++
++crawl.3dsx: $(GAME) crawl.smdh romfs
++	3dsxtool $(GAME) $@ --smdh=crawl.smdh --romfs=$(ROMFS_DIR)
++	@ls -la $@
++
++3dsx: crawl.3dsx
++
++# makerom is not part of devkitPro; get it from github.com/3DSGuy/Project_CTR
++crawl.cia: $(GAME) romfs $(RSF) $(ICON_PNG)
++	makerom -f cia -o $@ -elf $(GAME) -rsf $(RSF) -icon crawl.smdh \
++	        -banner 3ds/banner.bnr -exefslogo -target t -romfs-dir $(ROMFS_DIR) \
++	        || makerom -f cia -o $@ -elf $(GAME) -rsf $(RSF) -icon crawl.smdh \
++	        -target t -romfs-dir $(ROMFS_DIR)
++	@ls -la $@
++
++cia: crawl.smdh crawl.cia
++
++clean-3ds:
++	$(RM) -r $(ROMFS_DIR) crawl.3dsx crawl.smdh crawl.cia crawl.elf
++
++endif # TARGET_3DS
+diff --git a/crawl-ref/source/crash.cc b/crawl-ref/source/crash.cc
+index 7e43c5c..d1637e4 100644
+--- a/crawl-ref/source/crash.cc
++++ b/crawl-ref/source/crash.cc
+@@ -6,6 +6,9 @@
+ #include "AppHdr.h"
+ 
+ #include "crash.h"
++#ifdef TARGET_OS_3DS
++#define alarm(seconds) ((void)0) // no SIGALRM on the 3DS
++#endif
+ 
+ #if defined(UNIX)
+ #include <unistd.h>
+@@ -23,7 +26,9 @@
+ 
+ #ifndef TARGET_OS_WINDOWS
+ # include <cerrno>
++# ifndef TARGET_OS_3DS
+ # include <sys/wait.h>
++# endif
+ #endif
+ 
+ #ifdef BACKTRACE_SUPPORTED
+@@ -390,7 +395,7 @@ void write_stack_trace(FILE* file)
+ 
+ void call_gdb(FILE *file)
+ {
+-#ifndef TARGET_OS_WINDOWS
++#if !defined(TARGET_OS_WINDOWS) && !defined(TARGET_OS_3DS) // no fork/gdb
+     if (crawl_state.no_gdb)
+         return (void)fprintf(file, "%s\n", crawl_state.no_gdb);
+ 
+diff --git a/crawl-ref/source/main.cc b/crawl-ref/source/main.cc
+index 0fc93b9..91133af 100644
+--- a/crawl-ref/source/main.cc
++++ b/crawl-ref/source/main.cc
+@@ -22,7 +22,7 @@
+ # include <unistd.h>
+ #endif
+ 
+-#ifndef TARGET_OS_WINDOWS
++#if !defined(TARGET_OS_WINDOWS) && !defined(TARGET_OS_3DS)
+ # include <langinfo.h>
+ #endif
+ #ifdef USE_UNIX_SIGNALS
+@@ -239,6 +239,9 @@ __attribute__((externally_visible))
+ #endif
+ int main(int argc, char *argv[])
+ {
++#ifdef TARGET_OS_3DS
++    lib3ds_early_init();
++#endif
+ #ifdef DGAMELAUNCH
+     // avoid commas instead of dots, etc, on CDO
+     setlocale(LC_CTYPE, "");
+diff --git a/crawl-ref/source/platform.h b/crawl-ref/source/platform.h
+index 1eb098b..ac9b16d 100644
+--- a/crawl-ref/source/platform.h
++++ b/crawl-ref/source/platform.h
+@@ -310,6 +310,13 @@
+ #endif
+ #endif
+ 
++#if !defined (OS_DETECTED)
++#if defined (__3DS__)
++#define OS_DETECTED
++#define TARGET_OS_3DS
++#endif
++#endif
++
+ #if !defined (OS_DETECTED)
+ #if defined (TARGET_CPU_ARM)
+ #define OS_DETECTED
+diff --git a/crawl-ref/source/random.cc b/crawl-ref/source/random.cc
+index d4c078b..2e7c2ab 100644
+--- a/crawl-ref/source/random.cc
++++ b/crawl-ref/source/random.cc
+@@ -4,7 +4,7 @@
+ 
+ #include <cinttypes>
+ #include <cmath>
+-#if defined(UNIX) || defined(TARGET_COMPILER_MINGW)
++#if defined(UNIX) || defined(TARGET_COMPILER_MINGW) || defined(TARGET_OS_3DS)
+ # include <unistd.h>
+ #else
+ # include <process.h>
+diff --git a/crawl-ref/source/sqldbm.cc b/crawl-ref/source/sqldbm.cc
+index 275e397..e48324e 100644
+--- a/crawl-ref/source/sqldbm.cc
++++ b/crawl-ref/source/sqldbm.cc
+@@ -108,7 +108,11 @@ From SQLite's documentation:
+                 dbfile.c_str(), &db,
+                 readonly ? SQLITE_OPEN_READONLY :
+                 (SQLITE_OPEN_READWRITE | SQLITE_OPEN_CREATE),
++#ifdef TARGET_OS_3DS
++                "unix-none" // no fcntl locks on the 3DS
++#else
+                 nullptr
++#endif
+               )) != SQLITE_OK)
+     {
+         const string saveerr = error;
+diff --git a/crawl-ref/source/syscalls.cc b/crawl-ref/source/syscalls.cc
+index 9ca68c4..021cdb1 100644
+--- a/crawl-ref/source/syscalls.cc
++++ b/crawl-ref/source/syscalls.cc
+@@ -82,6 +82,13 @@ bool jni_keyboard_control(int action)
+ }
+ #endif
+ 
++#ifdef TARGET_OS_3DS
++// Single-process platform: file locking and fdatasync are no-ops.
++bool lock_file(int, bool, bool) { return true; }
++bool unlock_file(int) { return true; }
++int fdatasync(int) { return 0; }
++#else // !TARGET_OS_3DS
++
+ bool lock_file(int fd, bool write, bool wait)
+ {
+ #ifdef TARGET_OS_WINDOWS
+@@ -118,6 +125,7 @@ bool unlock_file(int fd)
+     return !fcntl(fd, F_SETLK, &fl);
+ #endif
+ }
++#endif // !TARGET_OS_3DS
+ 
+ bool read_urandom(char *buf, int len)
+ {
+@@ -238,7 +246,7 @@ int mkstemp(char *dummy)
+ 
+ #else
+ // non-Windows
+-# ifndef CRAWL_HAVE_FDATASYNC
++# if !defined(CRAWL_HAVE_FDATASYNC) && !defined(TARGET_OS_3DS)
+ // At least MacOS X 10.6 has it (as required by Posix) but present only
+ // as a symbol in the libraries without a proper header.
+ int fdatasync(int fd)

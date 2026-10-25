@@ -1,0 +1,55 @@
+#############################################################################
+# Nintendo 3DS packaging (dcss-3ds port)
+#
+#   make TARGET_3DS=y 3dsx   -> crawl.3dsx + crawl.smdh (Homebrew Launcher)
+#   make TARGET_3DS=y cia    -> crawl.cia (install with FBI; gets the
+#                               New 3DS 124 MB extended memory mode)
+#
+# romfs/ is assembled from dat/, docs/ and settings/ so the game finds its
+# data at romfs:/dat/... (DATA_DIR_PATH=romfs:/).
+#############################################################################
+ifdef TARGET_3DS
+
+ROMFS_DIR   := romfs
+SMDH_TITLE  := Dungeon Crawl Stone Soup
+SMDH_DESC   := DCSS $(SRC_VERSION) for New 3DS
+SMDH_AUTHOR := Crawl devteam / 3DS port
+ICON_PNG    := 3ds/icon.png
+RSF         := 3ds/crawl.rsf
+
+.PHONY: romfs 3dsx cia clean-3ds
+
+romfs: dat/dlua/tags.lua
+	@echo "    ROMFS   $(ROMFS_DIR)/"
+	@rm -rf $(ROMFS_DIR)
+	@mkdir -p $(ROMFS_DIR)/dat $(ROMFS_DIR)/docs $(ROMFS_DIR)/settings
+	@cp -r dat/clua dat/dlua dat/des dat/descript dat/database dat/defaults \
+	       dat/dist_bones $(ROMFS_DIR)/dat/
+	@cp -r ../settings/* $(ROMFS_DIR)/settings/ 2>/dev/null || true
+	@cp ../docs/*.txt $(ROMFS_DIR)/docs/ 2>/dev/null || true
+	@find $(ROMFS_DIR) -name '*.png' -delete
+	@du -sh $(ROMFS_DIR)
+
+crawl.smdh: $(ICON_PNG)
+	smdhtool --create "$(SMDH_TITLE)" "$(SMDH_DESC)" "$(SMDH_AUTHOR)" $(ICON_PNG) $@
+
+crawl.3dsx: $(GAME) crawl.smdh romfs
+	3dsxtool $(GAME) $@ --smdh=crawl.smdh --romfs=$(ROMFS_DIR)
+	@ls -la $@
+
+3dsx: crawl.3dsx
+
+# makerom is not part of devkitPro; get it from github.com/3DSGuy/Project_CTR
+crawl.cia: $(GAME) romfs $(RSF) $(ICON_PNG)
+	makerom -f cia -o $@ -elf $(GAME) -rsf $(RSF) -icon crawl.smdh \
+	        -banner 3ds/banner.bnr -exefslogo -target t -romfs-dir $(ROMFS_DIR) \
+	        || makerom -f cia -o $@ -elf $(GAME) -rsf $(RSF) -icon crawl.smdh \
+	        -target t -romfs-dir $(ROMFS_DIR)
+	@ls -la $@
+
+cia: crawl.smdh crawl.cia
+
+clean-3ds:
+	$(RM) -r $(ROMFS_DIR) crawl.3dsx crawl.smdh crawl.cia crawl.elf
+
+endif # TARGET_3DS
