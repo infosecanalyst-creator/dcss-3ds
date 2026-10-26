@@ -223,6 +223,51 @@ rw("contrib/sqlite/sqlite3.c",
    "  if( zPath[0]=='/' || strstr(zPath, \":/\")!=0 ){\n",
    "is absolute too")
 
+# --- DB_DIAG_3DS: robust, explained DB creation on the 3DS ---------------------
+rw("contrib/sqlite/Makefile",
+   "\t\t -DSQLITE_OMIT_PAGER_PRAGMAS \\\n",
+   "\t\t -DSQLITE_DISABLE_DIRSYNC \\\n",
+   "SQLITE_DISABLE_DIRSYNC")
+rw("sqldbm.cc",
+   "    init_schema();\n    return errc;",
+   "#ifdef TARGET_OS_3DS\n"
+   "    // 3DS: these DBs are caches rebuilt from text -- journal in RAM, no fsync\n"
+   "    sqlite3_exec(db, \"PRAGMA journal_mode=MEMORY; PRAGMA synchronous=OFF;\",\n"
+   "                 nullptr, nullptr, nullptr);\n"
+   "#endif\n"
+   "    init_schema();\n    return errc;",
+   "journal in RAM, no fsync")
+rw("sqldbm.cc", "#include \"syscalls.h\"\n",
+   "#include \"syscalls.h\"\n\nextern string dbm_last_error;\n", "extern string dbm_last_error;")
+rw("sqldbm.cc",
+   "        if (!readonly)\n            sqlite3_exec(db, \"COMMIT;\", nullptr, nullptr, nullptr);\n",
+   "        if (!readonly && sqlite3_exec(db, \"COMMIT;\", nullptr, nullptr, nullptr) != SQLITE_OK)\n"
+   "            dbm_last_error = string(\"commit failed: \") + sqlite3_errmsg(db);\n",
+   "commit failed: ")
+rw("sqldbm.cc",
+   "SQL_DBM *dbm_open(const char *filename, int mode, int)\n{\n    SQL_DBM *n = new SQL_DBM(filename, mode == O_RDONLY, true);\n    if (!n->is_open())\n    {\n",
+   "string dbm_last_error;\n\n"
+   "SQL_DBM *dbm_open(const char *filename, int mode, int)\n{\n    SQL_DBM *n = new SQL_DBM(filename, mode == O_RDONLY, true);\n    if (!n->is_open())\n    {\n"
+   "        dbm_last_error = (n->error.empty() ? string(\"open failed\") : n->error)\n"
+   "                         + \" (sqlite \" + to_string(n->errc) + \")\";\n",
+   "string dbm_last_error;\n\nSQL_DBM")
+rw("database.cc", "#include \"unicode.h\"\n",
+   "#include \"unicode.h\"\n\nextern string dbm_last_error;   // sqldbm.cc: reason for the last failed open\n",
+   "extern string dbm_last_error;")
+rw("database.cc",
+   "    if (timestamp.empty())\n        return false;\n",
+   "    if (timestamp.empty())\n    {\n        dbm_last_error = string(\"opened, but no TIMESTAMP row\")\n"
+   "                         + (dbm_last_error.empty() ? string() : \"; \" + dbm_last_error);\n        return false;\n    }\n",
+   "no TIMESTAMP row")
+rw("database.cc",
+   "    if (!_needs_update())\n        return;\n    _regenerate_db();\n",
+   "    if (!_needs_update())\n        return;\n    dbm_last_error.clear();\n    _regenerate_db();\n",
+   "dbm_last_error.clear();")
+rw("database.cc",
+   "        end(1, true, \"Failed to open DB: %s\",\n            _db_cache_path(_db_name, lang()).c_str());",
+   "        end(1, false, \"Failed to open DB: %s\\n%s\",\n            _db_cache_path(_db_name, lang()).c_str(), dbm_last_error.c_str());",
+   "dbm_last_error.c_str()")
+
 path = os.path.join(SRC, "Makefile")
 t = open(path, encoding="utf-8").read()
 if "crawl.3dsx:" not in t:
