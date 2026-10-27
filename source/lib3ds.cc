@@ -1426,6 +1426,10 @@ static void draw_bottom()
         draw_play_bottom();
     cv_blit(bot_cv, GFX_BOTTOM, GFX_LEFT);
     gfxFlushBuffers();
+    // single-buffered, so this only (re)presents the buffer -- and makes the
+    // GPU pick up the BGR8 format (the startup console left it at RGB565,
+    // which showed our 24-bit image as stripes)
+    gfxSwapBuffers();
     bottom_dirty = false;
 }
 
@@ -1458,6 +1462,7 @@ static void draw_top()
     cv_blit(top_cv, GFX_TOP, GFX_LEFT);
     cv_blit(top_cv, GFX_TOP, GFX_RIGHT);
     gfxFlushBuffers();
+    gfxSwapBuffers();
     top_dirty = false;
 }
 
