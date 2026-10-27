@@ -311,6 +311,12 @@ rw("Makefile",
    "ifdef NO_PKGCONFIG\nifndef TARGET_3DS\nBUILD_LIBPNG = YesPlease # used by build-rltiles sub-make\nendif\nendif\n",
    "ifndef TARGET_3DS\nBUILD_LIBPNG")
 
+# ...and the game doesn't need the webtiles client's tile PNGs either
+rw("Makefile",
+   "ifdef TILES_ANY\ninstall-data: $(DESTTILEFILES)\n$(GAME): $(DESTTILEFILES)\nendif\n",
+   "ifdef TILES_ANY\nifndef TARGET_3DS\ninstall-data: $(DESTTILEFILES)\n$(GAME): $(DESTTILEFILES)\nendif\nendif\n",
+   "ifndef TARGET_3DS\ninstall-data: $(DESTTILEFILES)")
+
 path = os.path.join(SRC, "Makefile")
 t = open(path, encoding="utf-8").read()
 rules = open(os.path.join(PORT, "Makefile.3ds-rules")).read()
