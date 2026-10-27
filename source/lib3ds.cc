@@ -37,6 +37,7 @@
 #include <cstdarg>
 #include <cstdio>
 #include <cstring>
+#include <algorithm>
 #include <deque>
 #include <string>
 #include <vector>
@@ -1029,6 +1030,23 @@ static std::vector<menu_entry> find_menu_entries()
     // a lone match is usually prose, not a menu
     if (out.size() < 2)
         out.clear();
+    // column-major, like the menu reads on the top screen; a footer block
+    // (after a gap of blank rows: "+ - Recommended...", "? - Help") goes last
+    int footer = GRID_H;
+    for (size_t i = 1; i < out.size(); ++i)
+        if (out[i].row - out[i - 1].row > 2)
+        {
+            footer = out[i].row;
+            break;
+        }
+    std::stable_sort(out.begin(), out.end(), [footer](const menu_entry &a, const menu_entry &b) {
+        const bool fa = a.row >= footer, fb = b.row >= footer;
+        if (fa != fb)
+            return fb;
+        if (fa)
+            return a.row != b.row ? a.row < b.row : a.col < b.col;
+        return a.col / 8 != b.col / 8 ? a.col < b.col : a.row < b.row;
+    });
     return out;
 }
 
@@ -1264,7 +1282,7 @@ static void draw_text_mode_bottom()
     const int n = (int)cur_entries.size();
     const int cols = n <= 10 ? 1 : n <= 20 ? 2 : 3;
     const int rows = (n + cols - 1) / cols;
-    const int rowh = std::max(18, std::min(24, (240 - 32) / std::max(1, rows)));
+    const int rowh = std::max(14, std::min(24, (240 - 32) / std::max(1, rows)));
     const int colw = 320 / cols;
     if (cur_entries.empty())
     {
@@ -1279,7 +1297,7 @@ static void draw_text_mode_bottom()
         const int cc = i / rows, rr = i % rows;
         const int x = cc * colw + 2, y = 2 + rr * rowh;
         if (y + rowh > 240 - 30)
-            break;
+            continue;
         // dim entries crawl draws in dark grey (unavailable choices)
         const int tfg = grid[e.row][e.tcol].fg;
         const bool dim = tfg == DARKGREY;
@@ -1371,6 +1389,16 @@ static void build_keyboard()
     };
     for (const softkey &k : bottom)
         softkeys.push_back(k);
+    // arrow keys in the top row (menus without hotkeys, history, cursor)
+    const softkey arrows[] =
+    {
+        { 196, 0, 30, 21, "\u2190", CK_LEFT,  0, SKEY_NONE },
+        { 226, 0, 30, 21, "\u2191", CK_UP,    0, SKEY_NONE },
+        { 256, 0, 30, 21, "\u2193", CK_DOWN,  0, SKEY_NONE },
+        { 286, 0, 30, 21, "\u2192", CK_RIGHT, 0, SKEY_NONE },
+    };
+    for (const softkey &k : arrows)
+        softkeys.push_back(k);
 }
 
 static void draw_keyboard()
@@ -1378,7 +1406,7 @@ static void draw_keyboard()
     Canvas &cv = bot_cv;
     cv_fill(cv, 0, 0, 320, 240, 18, 18, 26);
     char status[64];
-    snprintf(status, sizeof(status), "%s%sSELECT or tap here: close",
+    snprintf(status, sizeof(status), "%s%sSELECT: close",
              sticky_shift ? "[SHIFT] " : "", sticky_ctrl ? "[CTRL] " : "");
     draw_text(cv, F_TEXT, 6, 4, status, C_DIM);
 
@@ -1492,7 +1520,7 @@ static const keymap_3ds button_map[] =
     { KEY_DRIGHT, CK_RIGHT, CK_RIGHT },
     { KEY_A,      CK_TAB,   CK_ENTER },   // autofight / confirm
     { KEY_B,      ESCAPE,   ESCAPE   },
-    { KEY_X,      'o',      '?'      },   // explore / help
+    { KEY_X,      'o',      0        },   // explore / (nothing: '?' would land in text fields)
     { KEY_Y,      'g',      ' '      },   // pick up / next page
     { KEY_L,      's',      '<'      },   // wait a turn / page up
     { KEY_R,      '5',      '>'      },   // rest / page down
@@ -1551,10 +1579,21 @@ static void press_button(const button &b)
 // Text entry prompts (name, travel destination, search...) bring up the
 // keyboard by themselves, and put it away again when the prompt ends.
 static bool kb_auto = false;
+static bool kb_dismissed = false;   // closed by hand during this prompt
 static void auto_keyboard()
 {
-    const bool prompt = mouse_control::current_mode() == MOUSE_MODE_PROMPT;
-    if (prompt && !keyboard_overlay)
+    // crawl shows the cursor while it reads a line of text (name, travel
+    // destination, search, inscription...); menus and the map don't
+    bool prompt = mouse_control::current_mode() == MOUSE_MODE_PROMPT;
+    if (!prompt && cursor_is_enabled && region_of(cx, cy) != RG_VIEW)
+        prompt = !crt_mode || find_menu_entries().empty();
+    // full-screen text with nothing to tap (name entry, the main menu, help
+    // pages): the keyboard (with arrows, Enter, Esc) is the useful thing
+    if (!prompt && crt_mode && find_menu_entries().empty())
+        prompt = true;
+    if (!prompt)
+        kb_dismissed = false;
+    if (prompt && !keyboard_overlay && !kb_dismissed)
     {
         keyboard_overlay = kb_auto = true;
         bottom_dirty = true;
@@ -1576,6 +1615,7 @@ static void poll_input()
     if (down & KEY_SELECT)
     {
         keyboard_overlay = !keyboard_overlay;
+        kb_dismissed = !keyboard_overlay;
         kb_auto = false;
         bottom_dirty = true;
     }
@@ -1588,6 +1628,8 @@ static void poll_input()
         if ((is_dir ? rep : down) & m.button)
         {
             int k = crt_mode || keyboard_overlay ? m.text : m.play;
+            if (!k)
+                continue;
             if (yesno && m.button == KEY_A) k = 'y';
             if (yesno && m.button == KEY_B) k = 'n';
             if (more && m.button == KEY_A) k = CK_ENTER;
@@ -1615,9 +1657,10 @@ static void poll_input()
         bottom_dirty = true;
         if (keyboard_overlay)
         {
-            if (tp.py < KB_Y0)
+            if (tp.py < KB_Y0 && tp.px < 196)
             {
                 keyboard_overlay = kb_auto = false;
+                kb_dismissed = true;
                 return;
             }
             const int i = softkey_at(tp.px, tp.py);
@@ -2129,6 +2172,9 @@ void puttext(int x1, int y1, const crawl_view_buffer &vbuf)
         crt_mode = !is_viewport;
         grid_all_dirty = true;
         bottom_dirty = true;
+        // back to the dungeon: put away a keyboard opened for a menu
+        if (!crt_mode)
+            keyboard_overlay = false;
     }
     const screen_cell_t *cell = vbuf;
     if (is_viewport)
