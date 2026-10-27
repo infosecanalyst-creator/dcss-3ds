@@ -1108,9 +1108,27 @@ static void draw_play_top()
 
     // --- status panel (crawl's HUD text) at 6x13, left
     const int hud_cols = std::min((int)v.hudsz.x, 42);
-    const int hud_rows = std::min((int)v.hudsz.y, 12);
+    int hud_rows = 0;                      // only the rows crawl actually uses
+    for (int r = 0; r < std::min((int)v.hudsz.y, 12); ++r)
+    {
+        const int gy = v.hudp.y - 1 + r;
+        if (gy < 0 || gy >= GRID_H)
+            break;
+        for (int c = 0; c < hud_cols; ++c)
+        {
+            const int gx = v.hudp.x - 1 + c;
+            if (gx >= 0 && gx < GRID_W && grid[gy][gx].glyph != ' ')
+            {
+                hud_rows = r + 1;
+                break;
+            }
+        }
+    }
+    hud_rows = std::max(hud_rows, 8);
+    const int msg_top = hud_rows * 13 + 6;  // messages fill the rest of the screen
     cv_fill(cv, 0, 0, 256, hud_rows * 13 + 4, 16, 16, 26);
     draw_grid_region(cv, F_TEXT, 3, 2, 13, v.hudp, v.hudsz, hud_cols, hud_rows);
+    const int map_oy = msg_top - GYM - 6;   // minimap sits just above the messages
 
     // --- monsters in view, right column, with their tiles
     const int mx0 = 262, my0 = 2;
@@ -1121,7 +1139,7 @@ static void draw_play_top()
     {
         vector<monster_info> mons;
         get_nearby_monster_info(mons);
-        for (size_t i = 0; i < mons.size() && row < 4; )
+        for (size_t i = 0; i < mons.size() && my0 + 16 + row * 18 + 16 < map_oy - 2; )
         {
             size_t j = i + 1;
             while (j < mons.size() && !monster_info::less_than(mons[i], mons[j])
@@ -1149,7 +1167,7 @@ static void draw_play_top()
 
     // --- level minimap (1 px per square), bottom of the right column
     {
-        const int ox = 400 - GXM - 4, oy = 240 - std::min((int)v.msgsz.y, 8) * 10 - GYM - 6;
+        const int ox = 400 - GXM - 4, oy = map_oy;
         cv_fill(cv, ox - 2, oy - 2, GXM + 4, GYM + 4, 6, 6, 10);
         for (int y = 0; y < GYM; ++y)
             for (int x = 0; x < GXM; ++x)
@@ -1173,22 +1191,73 @@ static void draw_play_top()
         cv_frame(cv, ox + vcentre.x - MAP_CC, oy + vcentre.y - MAP_CR, MAP_COLS, MAP_ROWS, 120, 120, 160);
     }
 
-    // --- messages: crawl's message pane at 5x8 (80 cols = 400 px)
-    const int mrows = std::min((int)v.msgsz.y, 8);
-    const int my = 240 - mrows * 10;
-    cv_fill(cv, 0, my - 2, 400, 1, 60, 60, 80);
-    cv_fill(cv, 0, my - 1, 400, 240 - my + 1, 6, 6, 10);
-    for (int r = 0; r < mrows; ++r)
-        for (int c = 0; c < v.msgsz.x && c < GRID_W; ++c)
+    // --- messages: crawl's message pane re-wrapped into the 6x13 font
+    // (66 columns instead of crawl's 80), newest at the bottom. Dark colours
+    // are lifted so every message reads clearly on the dark panel.
+    cv_fill(cv, 0, msg_top - 2, 400, 1, 60, 60, 80);
+    cv_fill(cv, 0, msg_top - 1, 400, 240 - msg_top + 1, 6, 6, 10);
+    {
+        const int COLS = 400 / F_TEXT.w - 1, LH = 13;
+        const int max_lines = (240 - msg_top - 2) / LH;
+        struct VLine { int gy, start, len; };
+        std::vector<VLine> lines;
+        for (int r = 0; r < v.msgsz.y; ++r)
         {
-            const int gx = v.msgp.x - 1 + c, gy = v.msgp.y - 1 + r;
-            if (gy < 0 || gy >= GRID_H || gx < 0 || gx >= GRID_W)
+            const int gy = v.msgp.y - 1 + r;
+            if (gy < 0 || gy >= GRID_H)
                 continue;
-            const cell_t &cell = grid[gy][gx];
-            if (cell.glyph == ' ')
+            const int x0 = std::max(0, v.msgp.x - 1);
+            int len = std::min((int)v.msgsz.x, GRID_W - x0);
+            const bool cursor_here = cursor_is_enabled && cy == gy;
+            while (len > 0 && grid[gy][x0 + len - 1].glyph == ' ')
+                --len;
+            if (cursor_here && cx - x0 + 1 > len)
+                len = cx - x0 + 1;
+            if (len <= 0)
                 continue;
-            draw_char(cv, F_SMALL, c * 5, my + r * 10 + 1, cell.glyph, pal(cell.fg), nullptr);
+            int s = 0;
+            while (s < len)
+            {
+                int n = len - s;
+                if (n > COLS)
+                {
+                    n = COLS;
+                    for (int k = COLS; k > COLS / 2; --k)
+                        if (grid[gy][x0 + s + k].glyph == ' ')
+                        {
+                            n = k;
+                            break;
+                        }
+                }
+                lines.push_back({ gy, x0 + s, n });
+                s += n;
+                while (s < len && grid[gy][x0 + s].glyph == ' ')
+                    ++s;
+            }
         }
+        const int first = std::max(0, (int)lines.size() - max_lines);
+        for (int i = first; i < (int)lines.size(); ++i)
+        {
+            const VLine &l = lines[i];
+            const int y = msg_top + 1 + (i - first) * LH;
+            for (int c = 0; c < l.len; ++c)
+            {
+                const cell_t &cell = grid[l.gy][l.start + c];
+                const int x = 4 + c * F_TEXT.w;
+                if (cursor_is_enabled && cy == l.gy && cx == l.start + c)
+                    cv_fill(cv, x, y + 11, F_TEXT.w, 2, 230, 230, 230);
+                if (cell.glyph == ' ')
+                    continue;
+                const uint8_t *src = pal(cell.fg);
+                uint8_t fg[3] = { src[0], src[1], src[2] };
+                const int lum = (fg[0] * 3 + fg[1] * 6 + fg[2]) / 10;
+                if (lum < 150)                 // lift blues, purples, dark grey
+                    for (int k = 0; k < 3; ++k)
+                        fg[k] = (uint8_t)(fg[k] + (255 - fg[k]) * (150 - lum) / 220);
+                draw_char(cv, F_TEXT, x, y, cell.glyph, fg, nullptr);
+            }
+        }
+    }
 }
 
 // ===========================================================================
