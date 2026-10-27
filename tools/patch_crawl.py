@@ -304,6 +304,13 @@ rw("main.cc",
    "#if defined(USE_TILE_WEB) && !defined(TARGET_OS_3DS)\n    if (strcasecmp(nl_langinfo(CODESET), \"UTF-8\"))",
    "defined(USE_TILE_WEB) && !defined(TARGET_OS_3DS)\n    if (strcasecmp")
 
+# webtiles normally builds contrib libpng for the tile sheet generator; the
+# 3DS build only needs tile indices (see above), so skip it
+rw("Makefile",
+   "ifdef NO_PKGCONFIG\nBUILD_LIBPNG = YesPlease # used by build-rltiles sub-make\nendif\n",
+   "ifdef NO_PKGCONFIG\nifndef TARGET_3DS\nBUILD_LIBPNG = YesPlease # used by build-rltiles sub-make\nendif\nendif\n",
+   "ifndef TARGET_3DS\nBUILD_LIBPNG")
+
 path = os.path.join(SRC, "Makefile")
 t = open(path, encoding="utf-8").read()
 rules = open(os.path.join(PORT, "Makefile.3ds-rules")).read()
