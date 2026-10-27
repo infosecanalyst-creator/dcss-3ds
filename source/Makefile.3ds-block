@@ -5,6 +5,24 @@
 # Requires DEVKITPRO (and DEVKITARM) in the environment, devkitARM, libctru.
 #
 ifdef TARGET_3DS
+ifdef HARNESS_3DS
+  # Desktop test harness: same frontend + game, host compiler, fake libctru
+  # from $(HARNESS_3DS) (fake/3ds.h + libharness3ds.a). See tools/harness/.
+  NO_NCURSES := YesPlease
+  BUILD_LUA := yes
+  BUILD_SQLITE := yes
+  BUILD_ZLIB := YesPlease
+  BUILD_PCRE := YesPlease
+  prefix :=
+  DATADIR :=
+  SAVEDIR :=
+  INSTALL_PATH_CFLAGS_L += -DDATA_DIR_PATH=\"romfs:/\" -DSAVE_DIR_PATH=\"sdmc:/3ds/crawl\"
+  EXTERNAL_FLAGS += -D__3DS__ -D__3DS_HARNESS__ -D_GNU_SOURCE -g
+  EXTERNAL_FLAGS += -DSQLITE_THREADSAFE=0 -DSQLITE_OMIT_WAL -DSQLITE_TEMP_STORE=3 -DSQLITE_OMIT_LOAD_EXTENSION -DSQLITE_MAX_MMAP_SIZE=0
+  INCLUDES_L += -isystem $(HARNESS_3DS)/fake
+  EXTRA_LIBS += $(HARNESS_3DS)/libharness3ds.a -lm
+  GAME := crawl-harness
+else
   ifndef DEVKITPRO
     $(error TARGET_3DS build needs DEVKITPRO set, e.g. export DEVKITPRO=/opt/devkitpro)
   endif
@@ -39,8 +57,12 @@ ifdef TARGET_3DS
                     -DSQLITE_OMIT_LOAD_EXTENSION -DSQLITE_DISABLE_LFS -DSQLITE_MAX_MMAP_SIZE=0
   # TARGET_OS_3DS is defined by platform.h from __3DS__
   INCLUDES_L += -isystem $(DEVKITPRO)/libctru/include -isystem $(DEVKITPRO)/portlibs/3ds/include
+  # webtiles data path (tile ids per cell) without a websocket: sys/un.h shim
+  INCLUDES_L += -idirafter 3ds/compat
+  WEBTILES := y
   EXTERNAL_LDFLAGS += -specs=3dsx.specs $(ARCH_3DS) -L$(DEVKITPRO)/libctru/lib -Wl,--gc-sections
   EXTRA_LIBS += -lctru -lm
   GAME := crawl.elf
+endif # HARNESS_3DS
 endif
 

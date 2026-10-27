@@ -3,13 +3,10 @@
 A console-mode port of DCSS (current master, 0.34-era) to the Nintendo 3DS,
 done as a small platform layer on top of the upstream code rather than a fork.
 
-**Status: dual-screen layout working and verified on desktop; untested on
-hardware.** The real Crawl binary was linked against this backend on Linux
-(libctru swapped for a stub, `tools/headless/`), driven by scripted input and
-screenshotted: new game, autoexplore, the level map, inventory, the touch
-keyboard and the stereoscopic pair all behave (`docs/preview-*.png`). The
-first ARM build happens on your machine; expect a round of newlib link
-complaints, not logic bugs.
+**Status: runs on a New 3DS XL** (databases, character creation, play).
+The tiles frontend below is verified in a desktop harness (`tools/harness/`
+in spirit: the real Crawl linked on Linux against a fake libctru, scripted
+buttons/stylus, framebuffers dumped to images) before each hardware build.
 
 ## What's here
 
@@ -66,43 +63,44 @@ you how close you are.
 
 ## Layout
 
-Crawl still believes it has an 80×24 terminal; the backend routes each cell
-by the region crawl assigns it (`crawl_view.viewp/hudp/msgp/mlistp`):
+Crawl is built with `USE_TILE_WEB`, which makes it compute Crawl's own tile
+for every map square; the frontend reads those straight out of the view
+buffer (no websocket) and draws them from a prebuilt 16 px atlas of the
+official tile art (`source/3ds/tiles16.bin`, made by `tools/gen_atlas.py`
+from crawl's `rltiles` sheets).
 
-- **Top screen:** the dungeon viewport at 10×10 px per cell (the 5×10 font
-  doubled in width) in the upper 170 px, drawn in three depth layers for the
-  3D slider — floor glyphs sink behind the screen plane, walls/doors/items
-  sit on it, monsters and `@` float in front (3 px parallax per layer at
-  full slider; `kParallaxPx`). The 80-column message pane fills the bottom
-  70 px at 5×10 — exactly 400 px wide.
-- **Bottom screen:** the HUD and monster list at 5×10 in the left 210 px; a
-  column of touch command buttons on the right (explore, fight, rest,
-  search, pick up, inventory, map, travel, pray, cast, esc, enter, stairs,
-  keyboard).
-- **CRT mode:** any full-screen interface (main menu, character creation,
-  inventory, the level map, help…) is detected automatically — text landing
-  in the viewport that didn't come through `puttext()`, or a `puttext()`
-  that isn't viewport-sized — and the plain 80×24 grid is shown on the top
-  screen with the touch keyboard on the bottom. It switches back the moment
-  the map is redrawn.
+- **Bottom (touch) screen — the game.** The dungeon as tiles, 20×15
+  squares centred on you, so your whole line of sight fits. Tap a square to
+  travel there or attack what's on it; tap yourself to take the stairs,
+  pick up, or wait. Translucent button columns sit at the two edges
+  (outside line of sight): explore, autofight, rest, wait, pick up, stairs
+  up/down | items, cast, abilities, level map, character, messages,
+  keyboard. Yes/no questions get big Yes/No buttons; `--more--` continues
+  on any tap.
+- **Top screen — the dashboard.** Crawl's status panel (name, HP/MP,
+  stats, status lights, weapon/quiver) in a 6×13 font; the monsters in
+  view with their tiles; a level minimap with the touch map's window; the
+  message pane in 5×8.
+- **Menus** (inventory, spells, character creation, help…) are detected
+  automatically: the text appears on the top screen in 5×8, and the bottom
+  screen turns every menu entry into a touch row (one to three columns),
+  with Esc / Enter / Page up / Page down / Keys buttons. Text prompts open
+  the touch keyboard by themselves.
 
 ## Controls
 
-| Input | Key sent | Plain / with L held |
+| Input | In the dungeon | In menus |
 |---|---|---|
-| D-pad | arrows | move / **run** (Shift+arrow) |
-| Circle pad | numpad 1–9 | 8-way move with auto-repeat |
-| A / B | Enter / Esc | |
-| X | `o` autoexplore | `G` travel |
-| Y | Tab autofight | `p` pray |
-| R | `5` rest | `s` wait a turn |
-| ZL / ZR | `i` inventory / `g` pick up | `I` spells / `,` |
-| Start | `S` save and quit | |
-| Select | toggle the touch keyboard overlay | |
-| Touch | command buttons (play) / full keyboard with sticky Shift+Ctrl (overlay, menus) | |
-| HOME | treated as a hangup → crawl saves and exits | |
-
-Edit `button_map[]` in `lib3ds.cc` to change any of this.
+| Stylus | travel / attack / use stairs | pick an entry |
+| D-pad / Circle pad | move (8-way on the pad) | move |
+| A | autofight (Yes on y/n, continue on --more--) | Enter |
+| B | Esc (No on y/n) | Esc |
+| X | autoexplore | `?` help |
+| Y | pick up | next page |
+| L / R | wait a turn / rest | page up / down |
+| ZL / ZR | inventory / cast | |
+| Select | touch keyboard | touch keyboard |
+| HOME | crawl saves and exits | |
 
 ## Where things live on the 3DS
 

@@ -34,12 +34,14 @@ def rw(fname, old, new, marker):
 
 
 # ------------------------------------------------------------- platform.h
+# (checked first, so the desktop test harness -- a Linux build with
+#  -D__3DS__ -- also takes the 3DS paths)
 rw("platform.h",
-   "#if !defined (OS_DETECTED)\n#if defined (TARGET_CPU_ARM)\n",
-   "#if !defined (OS_DETECTED)\n#if defined (__3DS__)\n"
-   "#define OS_DETECTED\n#define TARGET_OS_3DS\n#endif\n#endif\n\n"
-   "#if !defined (OS_DETECTED)\n#if defined (TARGET_CPU_ARM)\n",
-   "#define TARGET_OS_3DS")
+   "* OS DETECTION *\n* ------------ */\n\n",
+   "* OS DETECTION *\n* ------------ */\n\n"
+   "/* 3DS before the hosts */\n#if !defined (OS_DETECTED)\n#if defined (__3DS__)\n"
+   "#define OS_DETECTED\n#define TARGET_OS_3DS\n#endif\n#endif\n\n",
+   "/* 3DS before the hosts */")
 
 # --------------------------------------------------------------- unicode.h
 # newlib (with _GNU_SOURCE) declares wcwidth(wchar_t); wchar_t is unsigned int
@@ -183,6 +185,14 @@ rw("Makefile",
    "include Makefile.obj\n",
    block + "include Makefile.obj\n",
    "ifdef TARGET_3DS")
+# keep an already-inserted block current
+_mk = os.path.join(SRC, "Makefile")
+_t = open(_mk, encoding="utf-8").read()
+_a = _t.find("#\n# Nintendo 3DS cross build")
+_b = _t.find("include Makefile.obj\n")
+if 0 <= _a < _b and _t[_a:_b] != block:
+    open(_mk, "w", encoding="utf-8").write(_t[:_a] + block + _t[_b:])
+    print("  + Makefile       3DS build block refreshed")
 
 rw("Makefile",
    "ifndef TILES\nifdef NEED_LIBW32C\nOBJECTS += libw32c.o\nelse\nOBJECTS += libunix.o\nendif\nendif",
@@ -278,17 +288,41 @@ for _f in ("database.cc", "maps.cc"):
         open(_p, "w", encoding="utf-8").write(_t.replace(_o, _n))
         print("  + %-14s first-run progress on the console" % _f)
 
+# 3DS: the tile *indices* are all the frontend needs from rltiles (the art
+# comes from the prebuilt atlas, 3ds/tiles16.bin), so keep generating the
+# tile headers the console way -- no libpng / real PNGs needed on the host.
+_mk = os.path.join(SRC, "Makefile")
+_t = open(_mk, encoding="utf-8").read()
+if "$(if $(TARGET_3DS),,$(WEBTILES))" not in _t:
+    _t = _t.replace("TILES=$(TILES)$(WEBTILES)", "TILES=$(TILES)$(if $(TARGET_3DS),,$(WEBTILES))")
+    open(_mk, "w", encoding="utf-8").write(_t)
+    print("  + Makefile       rltiles: indices only on 3DS")
+
+# webtiles' UTF-8 locale check (nl_langinfo) -- not on the 3DS
+rw("main.cc",
+   "#ifdef USE_TILE_WEB\n    if (strcasecmp(nl_langinfo(CODESET), \"UTF-8\"))",
+   "#if defined(USE_TILE_WEB) && !defined(TARGET_OS_3DS)\n    if (strcasecmp(nl_langinfo(CODESET), \"UTF-8\"))",
+   "defined(USE_TILE_WEB) && !defined(TARGET_OS_3DS)\n    if (strcasecmp")
+
 path = os.path.join(SRC, "Makefile")
 t = open(path, encoding="utf-8").read()
+rules = open(os.path.join(PORT, "Makefile.3ds-rules")).read()
 if "crawl.3dsx:" not in t:
-    t += "\n" + open(os.path.join(PORT, "Makefile.3ds-rules")).read()
+    t += "\n" + rules
     open(path, "w", encoding="utf-8").write(t)
     print("  + Makefile       3dsx/cia rules appended")
 else:
-    print("  = Makefile       3dsx rules already present")
+    _a = t.find("#############################################################################\n# Nintendo 3DS packaging")
+    _b = t.find("endif # TARGET_3DS\n", _a)
+    if 0 <= _a < _b and t[_a:_b + len("endif # TARGET_3DS\n")] != rules:
+        t = t[:_a] + rules + t[_b + len("endif # TARGET_3DS\n"):]
+        open(path, "w", encoding="utf-8").write(t)
+        print("  + Makefile       3dsx rules refreshed")
+    else:
+        print("  = Makefile       3dsx rules already present")
 
 # -------------------------------------------------------------- new files
-for f in ("lib3ds.cc", "lib3ds.h", "font5x10.h"):
+for f in ("lib3ds.cc", "lib3ds.h", "font5x8.h", "font6x13.h", "font6x13b.h"):
     shutil.copy(os.path.join(PORT, f), os.path.join(SRC, f))
     print("  + %-14s copied" % f)
 os.makedirs(os.path.join(SRC, "3ds"), exist_ok=True)
@@ -297,6 +331,13 @@ for f in ("crawl.rsf", "icon.png"):
     if os.path.exists(p):
         shutil.copy(p, os.path.join(SRC, "3ds", f))
         print("  + 3ds/%-10s copied" % f)
+os.makedirs(os.path.join(SRC, "3ds", "compat", "sys"), exist_ok=True)
+shutil.copy(os.path.join(PORT, "3ds", "compat", "sys", "un.h"), os.path.join(SRC, "3ds", "compat", "sys", "un.h"))
+print("  + 3ds/compat/sys/un.h copied")
+_atl = os.path.join(PORT, "3ds", "tiles16.bin")
+if os.path.exists(_atl):
+    shutil.copy(_atl, os.path.join(SRC, "3ds", "tiles16.bin"))
+    print("  + 3ds/tiles16.bin copied")
 
 rv = os.path.join(SRC, "util", "release_ver")
 if not os.path.exists(rv):

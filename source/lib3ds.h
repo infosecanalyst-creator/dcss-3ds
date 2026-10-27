@@ -17,3 +17,4 @@ void lib3ds_early_init();
 // test/arena modes; never true in normal play on the 3DS.
 bool in_headless_mode();
 void enter_headless_mode();
+void fakecursorxy(int x, int y);

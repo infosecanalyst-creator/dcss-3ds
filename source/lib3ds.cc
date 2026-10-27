@@ -1,29 +1,28 @@
 /**
  * @file
- * @brief Nintendo 3DS console backend for Dungeon Crawl Stone Soup.
+ * @brief Nintendo 3DS frontend for Dungeon Crawl Stone Soup.
  *
- * Implements the ~30-function console interface in libconsole.h (the same
- * contract libw32c.cc and libunix.cc fulfil) on top of libctru.
+ * Implements the console interface in libconsole.h (the same contract
+ * libunix.cc and libw32c.cc fulfil) on top of libctru, and draws a tiles
+ * presentation from the tile data crawl computes when built with
+ * USE_TILE_WEB (each viewport cell arrives in puttext() with a packed_cell).
  *
- * Crawl believes it is drawing into an 80x24 terminal. This file keeps that
- * grid and, at blit time, routes each cell to a screen by the region it
- * belongs to (crawl_view.viewp/hudp/msgp/mlistp):
+ *   Bottom (touch) screen -- the game:
+ *     the dungeon as 16 px tiles (Crawl's own tile art), 20 x 15 cells
+ *     centred on the player so the whole line of sight fits; translucent
+ *     button columns at the two edges (outside line of sight). Tap a square
+ *     to travel there / attack, tap yourself to pick up or use stairs.
+ *   Top screen -- the dashboard:
+ *     crawl's status panel (name, HP/MP, stats, status lights) in a 6x13
+ *     font, the monsters in view with their tiles, and the message pane.
  *
- *   Top screen (400x240)
- *     - dungeon viewport, 10x10 px cells (the 5x10 font doubled in width)
- *       drawn in depth layers for the 3D slider: floor behind the plane,
- *       walls/items on it, monsters and @ in front
- *     - message pane, 80 cols x 7 rows at 5x10 (exactly 400 px wide)
- *   Bottom screen (320x240)
- *     - HUD + monster list at 5x10 in the left 210 px
- *     - command buttons on the right; a full touch keyboard overlay (toggle
- *       with the KB button or SELECT)
+ * Any crawl screen that is not the dungeon (menus, inventory, the level map,
+ * character screens...) is drawn into the 80x24 text grid; those are shown
+ * on the top screen in a 5x8 font ("text mode") while the bottom screen
+ * offers the menu's entries as big touch rows plus Esc/Enter/page buttons.
  *
- * Any crawl screen that is not the dungeon (menus, inventory, the level
- * map, ...) blanks the viewport: those full-screen interfaces are detected
- * by the viewport region being overwritten with non-map text, and the whole
- * 80x24 grid is then shown on the top screen at 5x10 instead ("CRT mode").
- * Nothing in crawl proper needs to change for any of this.
+ * Crawl proper only needs USE_TILE_WEB turned on; nothing here talks to a
+ * websocket -- the tile data is read straight from the view buffer.
 **/
 
 #include "AppHdr.h"
@@ -39,38 +38,56 @@
 #include <cstdio>
 #include <cstring>
 #include <deque>
+#include <string>
+#include <vector>
 #include <sqlite3.h>
 
 // libctru's default main-thread stack is only 32 KB; crawl builds a whole
-// `player` (and other big objects) on the stack -- new game / tutorial
-// overflowed it (data abort in player::player()). Give it 4 MB.
+// `player` (and other big objects) on the stack. Give it 4 MB.
 extern "C" { u32 __stacksize__ = 4 * 1024 * 1024; }
 
 #include "cio.h"
+#include "command.h"
 #include "defines.h"
+#include "directn.h"
+#include "env.h"
 #include "libutil.h"
+#include "message.h"
+#include "mon-info.h"
 #include "options.h"
+#include "player.h"
 #include "state.h"
+#include "terrain.h"
+#include "travel.h"
 #include "unicode.h"
 #include "version.h"
 #include "viewgeom.h"
 #include "view.h"
 
-#include "font5x10.h"
+#ifdef USE_TILE
+#include "tilecell.h"
+#include "tiledoll.h"
+#include "tilemcache.h"
+#include "tilepick.h"
+#include "tiles.h"
+#include "rltiles/tiledef-dngn.h"
+#include "rltiles/tiledef-gui.h"
+#include "rltiles/tiledef-icons.h"
+#include "rltiles/tiledef-main.h"
+#include "rltiles/tiledef-player.h"
+#include "rltiles/status-icon-sizes.h"
+#endif
 
-// newlib has no process ownership; SQLite (contrib) references these in a
-// code path that is never taken without a real filesystem owner model.
-extern "C" {
-uid_t geteuid(void) { return 0; }
-int fchown(int, uid_t, gid_t) { return 0; }
-}
+#include "font5x8.h"
+#include "font6x13.h"
+#include "font6x13b.h"
 
-// ---------------------------------------------------------------------------
-// Text grid
-// ---------------------------------------------------------------------------
+// ===========================================================================
+// Text grid: crawl believes it draws into an 80x24 terminal.
+// ===========================================================================
 
-static const int GRID_W = 80;   // 80 * 5  = 400 px  (top screen width)
-static const int GRID_H = 24;   // 24 * 10 = 240 px  (top screen height)
+static const int GRID_W = 80;
+static const int GRID_H = 24;
 
 struct cell_t
 {
@@ -91,140 +108,39 @@ static COLOURS BG_COL = BLACK;
 static uint8_t current_fg = LIGHTGREY;
 static uint8_t current_bg = BLACK;
 
-// Classic 16-colour palette (BGR order is handled at blit time).
+// Terminal palette, slightly softened for the 3DS LCDs.
 static const uint8_t palette[16][3] =
 {
-    {  0,   0,   0}, // BLACK
-    {  0,   0, 170}, // BLUE
-    {  0, 170,   0}, // GREEN
-    {  0, 170, 170}, // CYAN
-    {170,   0,   0}, // RED
-    {170,   0, 170}, // MAGENTA
-    {170,  85,   0}, // BROWN
-    {170, 170, 170}, // LIGHTGREY
-    { 85,  85,  85}, // DARKGREY
-    { 85,  85, 255}, // LIGHTBLUE
-    { 85, 255,  85}, // LIGHTGREEN
-    { 85, 255, 255}, // LIGHTCYAN
-    {255,  85,  85}, // LIGHTRED
-    {255,  85, 255}, // LIGHTMAGENTA
-    {255, 255,  85}, // YELLOW
-    {255, 255, 255}, // WHITE
+    { 10,  10,  14}, // BLACK
+    { 40,  80, 210}, // BLUE
+    { 40, 170,  60}, // GREEN
+    { 40, 170, 170}, // CYAN
+    {190,  40,  40}, // RED
+    {170,  60, 180}, // MAGENTA
+    {170, 110,  30}, // BROWN
+    {185, 185, 190}, // LIGHTGREY
+    {100, 100, 110}, // DARKGREY
+    {100, 140, 255}, // LIGHTBLUE
+    { 90, 230,  90}, // LIGHTGREEN
+    { 90, 230, 230}, // LIGHTCYAN
+    {255,  95,  90}, // LIGHTRED
+    {240, 110, 240}, // LIGHTMAGENTA
+    {250, 230,  80}, // YELLOW
+    {250, 250, 250}, // WHITE
 };
 
-// ---------------------------------------------------------------------------
-// Font
-// ---------------------------------------------------------------------------
-
-static int font_index(char32_t c)
-{
-    // font_cp is sorted; binary search.
-    int lo = 0, hi = FONT_NGLYPHS - 1;
-    while (lo <= hi)
-    {
-        const int mid = (lo + hi) / 2;
-        if (font_cp[mid] == c)
-            return mid;
-        if (font_cp[mid] < c)
-            lo = mid + 1;
-        else
-            hi = mid - 1;
-    }
-    return -1;
-}
-
-static const uint8_t *glyph_bits(char32_t c)
-{
-    int i = font_index(c);
-    if (i < 0)
-        i = font_index('?');
-    return font_bits[i];
-}
-
-// ---------------------------------------------------------------------------
-// Framebuffer helpers (BGR8, portrait-rotated: fb[(x*H + (H-1-y)) * 3])
-// ---------------------------------------------------------------------------
-
-static inline void put_px(u8 *fb, int fbh, int x, int y,
-                          uint8_t r, uint8_t g, uint8_t b)
-{
-    u8 *p = fb + 3 * (x * fbh + (fbh - 1 - y));
-    p[0] = b; p[1] = g; p[2] = r;
-}
-
-static void draw_glyph(u8 *fb, int fbh, int px, int py, char32_t c,
-                       const uint8_t *fg, const uint8_t *bg, int scale = 1)
-{
-    const uint8_t *bits = glyph_bits(c);
-    for (int y = 0; y < FONT_H; ++y)
-    {
-        const uint8_t row = bits[y];
-        for (int x = 0; x < FONT_W; ++x)
-        {
-            const bool on = row & (1 << (FONT_W - 1 - x));
-            const uint8_t *col = on ? fg : bg;
-            for (int sy = 0; sy < scale; ++sy)
-                for (int sx = 0; sx < scale; ++sx)
-                    put_px(fb, fbh, px + x * scale + sx, py + y * scale + sy,
-                           col[0], col[1], col[2]);
-        }
-    }
-}
-
-// 10x10 map cell: the glyph doubled horizontally.
-static void draw_glyph_wide(u8 *fb, int fbh, int px, int py, char32_t c,
-                            const uint8_t *fg, const uint8_t *bg)
-{
-    const uint8_t *bits = glyph_bits(c);
-    for (int y = 0; y < FONT_H; ++y)
-    {
-        const uint8_t row = bits[y];
-        for (int x = 0; x < FONT_W; ++x)
-        {
-            const bool on = row & (1 << (FONT_W - 1 - x));
-            const uint8_t *col = on ? fg : bg;
-            const int xx = px + x * 2, yy = py + y;
-            if (xx < 0 || xx + 1 >= 400 || yy < 0 || yy >= 240)
-                continue;
-            put_px(fb, fbh, xx, yy, col[0], col[1], col[2]);
-            put_px(fb, fbh, xx + 1, yy, col[0], col[1], col[2]);
-        }
-    }
-}
-
-static void fill_rect(u8 *fb, int fbh, int x0, int y0, int w, int h,
-                      uint8_t r, uint8_t g, uint8_t b)
-{
-    for (int y = y0; y < y0 + h; ++y)
-        for (int x = x0; x < x0 + w; ++x)
-            put_px(fb, fbh, x, y, r, g, b);
-}
-
-static void draw_string(u8 *fb, int fbh, int px, int py, const char *s,
-                        const uint8_t *fg, const uint8_t *bg)
-{
-    char32_t c;
-    while (int taken = utf8towc(&c, s))
-    {
-        s += taken;
-        draw_glyph(fb, fbh, px, py, c, fg, bg);
-        px += FONT_W;
-    }
-}
-
-// ---------------------------------------------------------------------------
-// Layout: which screen does a grid cell belong to?
-// ---------------------------------------------------------------------------
+// Region bookkeeping ---------------------------------------------------------
 
 enum Region { RG_VIEW, RG_MSG, RG_HUD, RG_MLIST, RG_OTHER };
 
-// "CRT mode": crawl is showing a full-screen interface (menu, inventory,
-// level map...). Detected when text lands in the viewport that did not
-// come through puttext(). Shown as the plain 80x24 grid on the top screen.
+// "Text mode": crawl is showing a full-screen interface (menu, inventory,
+// level map...). Detected when text lands in the viewport that did not come
+// through puttext().
 static bool crt_mode = false;
 static bool in_puttext = false;
-static int  crt_quiet_frames = 0;
 static bool keyboard_overlay = false;
+static bool top_dirty = true;
+static bool bottom_dirty = true;
 
 static Region region_of(int x, int y)
 {
@@ -240,104 +156,1277 @@ static Region region_of(int x, int y)
     return RG_OTHER;
 }
 
-// Depth class of a map glyph for the stereoscopic layers.
-enum { DL_FLOOR = 0, DL_PLANE = 1, DL_ACTOR = 2, DL_COUNT = 3 };
-static const float kParallaxPx = 3.0f; // per level at full slider
+// ===========================================================================
+// Canvas: landscape RGB888 buffers, rotated into the 3DS framebuffers at blit
+// ===========================================================================
 
-static int depth_of_glyph(char32_t g)
+struct Canvas
 {
-    if (g == ' ' || g == '.' || g == ',' || g == 0x00B7 || g == 0x2219 || g == '~'
-        || g == 0x2248 || g == '\'' || g == '`' || g == 0x2591)
-        return DL_FLOOR;                               // floor, water, lava, shallow
-    if (g == '@' || (g >= 'a' && g <= 'z') || (g >= 'A' && g <= 'Z') || g == '&'
-        || g == ';' || (g >= '1' && g <= '9'))
-        return DL_ACTOR;                               // monsters, player, uniques
-    return DL_PLANE;                                   // walls, doors, items, stairs
+    int w, h;
+    uint8_t *px;
+    inline uint8_t *at(int x, int y) { return px + (y * w + x) * 3; }
+};
+
+static uint8_t top_px[400 * 240 * 3], bot_px[320 * 240 * 3];
+static Canvas top_cv = { 400, 240, top_px };
+static Canvas bot_cv = { 320, 240, bot_px };
+
+static void cv_fill(Canvas &c, int x0, int y0, int w, int h, uint8_t r, uint8_t g, uint8_t b)
+{
+    if (x0 < 0) { w += x0; x0 = 0; }
+    if (y0 < 0) { h += y0; y0 = 0; }
+    if (x0 + w > c.w) w = c.w - x0;
+    if (y0 + h > c.h) h = c.h - y0;
+    for (int y = y0; y < y0 + h; ++y)
+    {
+        uint8_t *p = c.at(x0, y);
+        for (int x = 0; x < w; ++x, p += 3)
+            p[0] = r, p[1] = g, p[2] = b;
+    }
 }
 
-// ---------------------------------------------------------------------------
-// Top screen
-// ---------------------------------------------------------------------------
-
-static void draw_crt(u8 *fb, int H)
+// Blend a colour over a rectangle (a: 0..255).
+static void cv_shade(Canvas &c, int x0, int y0, int w, int h, uint8_t r, uint8_t g, uint8_t b, int a)
 {
-    fill_rect(fb, H, 0, 0, 400, 240, 0, 0, 0);
+    if (x0 < 0) { w += x0; x0 = 0; }
+    if (y0 < 0) { h += y0; y0 = 0; }
+    if (x0 + w > c.w) w = c.w - x0;
+    if (y0 + h > c.h) h = c.h - y0;
+    const int ia = 255 - a;
+    for (int y = y0; y < y0 + h; ++y)
+    {
+        uint8_t *p = c.at(x0, y);
+        for (int x = 0; x < w; ++x, p += 3)
+        {
+            p[0] = (p[0] * ia + r * a) / 255;
+            p[1] = (p[1] * ia + g * a) / 255;
+            p[2] = (p[2] * ia + b * a) / 255;
+        }
+    }
+}
+
+static void cv_frame(Canvas &c, int x, int y, int w, int h, uint8_t r, uint8_t g, uint8_t b)
+{
+    cv_fill(c, x, y, w, 1, r, g, b);
+    cv_fill(c, x, y + h - 1, w, 1, r, g, b);
+    cv_fill(c, x, y, 1, h, r, g, b);
+    cv_fill(c, x + w - 1, y, 1, h, r, g, b);
+}
+
+// Rotate a canvas into a portrait BGR8 framebuffer (fb[(x*240 + 239-y)*3]).
+static void cv_blit(const Canvas &c, gfxScreen_t screen, gfx3dSide_t side)
+{
+    u16 fbw, fbh;
+    u8 *fb = gfxGetFramebuffer(screen, side, &fbw, &fbh);
+    const int H = fbw; // 240
+    for (int x = 0; x < c.w; ++x)
+    {
+        u8 *col = fb + x * H * 3;
+        for (int y = 0; y < c.h; ++y)
+        {
+            const uint8_t *s = c.px + (y * c.w + x) * 3;
+            u8 *d = col + (H - 1 - y) * 3;
+            d[0] = s[2]; d[1] = s[1]; d[2] = s[0];
+        }
+    }
+}
+
+// Fonts ----------------------------------------------------------------------
+
+struct Font
+{
+    int w, h, n;
+    const uint16_t *cp;
+    const uint8_t *bits;   // n * h rows, MSB = leftmost of w pixels
+};
+
+static const Font F_SMALL = { FONT5X8_W, FONT5X8_H, FONT5X8_N, font5x8_cp, &font5x8_bits[0][0] };
+static const Font F_TEXT  = { FONT6X13_W, FONT6X13_H, FONT6X13_N, font6x13_cp, &font6x13_bits[0][0] };
+static const Font F_BOLD  = { FONT6X13B_W, FONT6X13B_H, FONT6X13B_N, font6x13b_cp, &font6x13b_bits[0][0] };
+
+static int font_find(const Font &f, char32_t c)
+{
+    int lo = 0, hi = f.n - 1;
+    while (lo <= hi)
+    {
+        const int mid = (lo + hi) / 2;
+        if (f.cp[mid] == c)
+            return mid;
+        if (f.cp[mid] < c)
+            lo = mid + 1;
+        else
+            hi = mid - 1;
+    }
+    return -1;
+}
+
+// Glyph with fallbacks: the bold font lacks most symbols, crawl uses a few
+// characters none of the fonts have.
+static const uint8_t *glyph_rows(const Font &f, char32_t c, const Font **used)
+{
+    int i = font_find(f, c);
+    if (i >= 0) { *used = &f; return f.bits + i * f.h; }
+    if (&f == &F_BOLD && (i = font_find(F_TEXT, c)) >= 0)
+    {
+        *used = &F_TEXT;
+        return F_TEXT.bits + i * F_TEXT.h;
+    }
+    switch (c)
+    {
+    case 0x00B7: case 0x2219: c = '.'; break;   // middle dot floors
+    case 0x2248: c = '~'; break;
+    default: c = '?'; break;
+    }
+    i = font_find(f, c);
+    *used = &f;
+    return f.bits + (i < 0 ? 0 : i) * f.h;
+}
+
+static void draw_char(Canvas &cv, const Font &f, int px, int py, char32_t c,
+                      const uint8_t *fg, const uint8_t *bg)
+{
+    const Font *u;
+    const uint8_t *rows = glyph_rows(f, c, &u);
+    for (int y = 0; y < f.h; ++y)
+    {
+        const int yy = py + y;
+        if (yy < 0 || yy >= cv.h)
+            continue;
+        const uint8_t row = y < u->h ? rows[y] : 0;
+        for (int x = 0; x < f.w; ++x)
+        {
+            const int xx = px + x;
+            if (xx < 0 || xx >= cv.w)
+                continue;
+            const bool on = row & (1 << (u->w - 1 - x));
+            const uint8_t *col = on ? fg : bg;
+            if (!col)
+                continue;
+            uint8_t *p = cv.at(xx, yy);
+            p[0] = col[0]; p[1] = col[1]; p[2] = col[2];
+        }
+    }
+}
+
+// UTF-8 string; returns the x after the text. maxw clips (pixels, 0 = none).
+static int draw_text(Canvas &cv, const Font &f, int x, int y, const char *s,
+                     const uint8_t *fg, const uint8_t *bg = nullptr, int maxw = 0)
+{
+    const int x0 = x;
+    char32_t c;
+    while (int taken = utf8towc(&c, s))
+    {
+        s += taken;
+        if (maxw && x - x0 + f.w > maxw)
+            break;
+        draw_char(cv, f, x, y, c, fg, bg);
+        x += f.w;
+    }
+    return x;
+}
+
+static int text_width(const Font &f, const char *s)
+{
+    int n = 0;
+    char32_t c;
+    while (int taken = utf8towc(&c, s))
+        s += taken, ++n;
+    return n * f.w;
+}
+
+static const uint8_t C_WHITE[3] = {245, 245, 245};
+static const uint8_t C_TEXT[3]  = {215, 215, 222};
+static const uint8_t C_DIM[3]   = {140, 140, 152};
+static const uint8_t C_GOLD[3]  = {250, 220, 120};
+
+// ===========================================================================
+// Tile atlas (romfs:/tiles16.bin, built by tools/gen_atlas.py)
+// ===========================================================================
+
+static uint32_t atlas_n = 0, atlas_px_size = 16;
+static uint16_t *atlas_wh = nullptr;      // w,h pairs
+static uint32_t *atlas_off = nullptr;     // pixel offsets
+static uint8_t  *atlas_px = nullptr;      // premultiplied RGBA8
+static bool atlas_tried = false;
+
+static bool load_atlas()
+{
+    if (atlas_tried)
+        return atlas_px != nullptr;
+    atlas_tried = true;
+    FILE *f = fopen("romfs:/tiles16.bin", "rb");
+    if (!f)
+        return false;
+    char magic[4];
+    uint32_t hdr[3];
+    if (fread(magic, 1, 4, f) != 4 || memcmp(magic, "T3DS", 4)
+        || fread(hdr, 4, 3, f) != 3 || hdr[0] != 1)
+    {
+        fclose(f);
+        return false;
+    }
+    atlas_n = hdr[1];
+    atlas_px_size = hdr[2];
+    atlas_wh = new uint16_t[atlas_n * 2];
+    atlas_off = new uint32_t[atlas_n];
+    uint32_t total = 0;
+    for (uint32_t i = 0; i < atlas_n; ++i)
+    {
+        uint16_t wh[2];
+        uint32_t off;
+        if (fread(wh, 2, 2, f) != 2 || fread(&off, 4, 1, f) != 1)
+            break;
+        atlas_wh[i * 2] = wh[0];
+        atlas_wh[i * 2 + 1] = wh[1];
+        atlas_off[i] = off;
+        total = off + wh[0] * wh[1];
+    }
+    atlas_px = new uint8_t[(size_t)total * 4];
+    size_t got = fread(atlas_px, 4, total, f);
+    fclose(f);
+#ifdef USE_TILE
+    // the atlas must match this build's tile numbering exactly
+    if (atlas_n != (uint32_t)TILEI_ICONS_MAX)
+        got = 0;
+#endif
+    if (got != total)
+    {
+        delete[] atlas_px;
+        atlas_px = nullptr;
+        return false;
+    }
+    return true;
+}
+
+// Draw tile `idx` with its top-left at (x,y). ofs and ymax are in crawl's
+// 32 px tile units. alpha 0..255; `submerged` fades the part below the
+// waterline. Clipped to the clip rectangle.
+static int clip_x0 = 0, clip_x1 = 4096, clip_y0 = 0, clip_y1 = 4096;
+
+static void blit_tile(Canvas &cv, unsigned idx, int x, int y, int ofsx = 0, int ofsy = 0,
+                      int alpha = 255, int ymax = -1, bool submerged = false)
+{
+    if (!atlas_px || idx >= atlas_n)
+        return;
+    const int S = atlas_px_size;
+    const int w = atlas_wh[idx * 2], h = atlas_wh[idx * 2 + 1];
+    const uint8_t *src = atlas_px + (size_t)atlas_off[idx] * 4;
+    x += ofsx * S / 32;
+    y += ofsy * S / 32;
+    const int rows = ymax >= 0 ? std::min(h, ymax * S / 32) : h;
+    const int water = S * 20 / 32; // waterline for submerged parts
+    for (int yy = 0; yy < rows; ++yy)
+    {
+        const int dy = y + yy;
+        if (dy < clip_y0 || dy >= clip_y1 || dy < 0 || dy >= cv.h)
+            continue;
+        const int a_row = (submerged && yy >= water) ? alpha * 3 / 10 : alpha;
+        for (int xx = 0; xx < w; ++xx)
+        {
+            const int dx = x + xx;
+            if (dx < clip_x0 || dx >= clip_x1 || dx < 0 || dx >= cv.w)
+                continue;
+            const uint8_t *s = src + (yy * w + xx) * 4;
+            if (!s[3])
+                continue;
+            uint8_t *d = cv.at(dx, dy);
+            if (a_row == 255)
+            {
+                const int ia = 255 - s[3];
+                d[0] = s[0] + d[0] * ia / 255;
+                d[1] = s[1] + d[1] * ia / 255;
+                d[2] = s[2] + d[2] * ia / 255;
+            }
+            else
+            {
+                const int sa = s[3] * a_row / 255, ia = 255 - sa;
+                d[0] = (s[0] * a_row + d[0] * ia) / 255;
+                d[1] = (s[1] * a_row + d[1] * ia) / 255;
+                d[2] = (s[2] * a_row + d[2] * ia) / 255;
+            }
+        }
+    }
+}
+
+// ===========================================================================
+// Cell renderer: a port of DungeonCellBuffer (tiledgnbuf.cc) to the atlas.
+// Ops are collected per layer, then drawn layer by layer like crawl does.
+// ===========================================================================
+
+#ifdef USE_TILE
+enum { L_FLOOR, L_WALL, L_FEAT, L_FEAT_TRANS, L_DOLL, L_MAIN_TRANS, L_MAIN, L_ICONS, L_COUNT };
+
+struct TileOp
+{
+    uint16_t idx;
+    int16_t  x, y;
+    int8_t   ox, oy;
+    int16_t  ymax;
+    uint8_t  alpha;
+    bool     submerged;
+};
+
+static std::vector<TileOp> layer_ops[L_COUNT];
+
+static void op(int layer, tileidx_t idx, int x, int y, int ox = 0, int oy = 0,
+               int alpha = 255, int ymax = -1, bool submerged = false)
+{
+    if (!idx)
+        return;
+    layer_ops[layer].push_back({ (uint16_t)idx, (int16_t)x, (int16_t)y, (int8_t)ox, (int8_t)oy,
+                                 (int16_t)ymax, (uint8_t)alpha, submerged });
+}
+
+static void add_dngn_tile(tileidx_t idx, int x, int y, bool in_water = false)
+{
+    if (idx < TILE_FLOOR_MAX)
+        op(L_FLOOR, idx, x, y);
+    else if (idx < TILE_WALL_MAX)
+        op(L_WALL, idx, x, y);
+    else if (in_water)
+    {
+        op(L_FLOOR, TILE_DNGN_SHALLOW_WATER, x, y);
+        op(L_FEAT_TRANS, idx, x, y, 0, 0, 255, -1, true);
+    }
+    else
+        op(L_FEAT, idx, x, y);
+}
+
+static void add_blood_overlay(int x, int y, const packed_cell &cell, bool is_wall = false)
+{
+    if (cell.is_liquefied && !is_wall)
+    {
+        const int offset = cell.flv.special % tile_dngn_count(TILE_LIQUEFACTION);
+        op(L_FLOOR, TILE_LIQUEFACTION + offset, x, y);
+    }
+    else if (cell.is_bloody && Options.show_blood)
+    {
+        tileidx_t basetile;
+        if (is_wall)
+        {
+            basetile = cell.old_blood ? TILE_WALL_OLD_BLOOD : TILE_WALL_BLOOD_S;
+            basetile += tile_dngn_count(basetile) * cell.blood_rotation;
+        }
+        else
+            basetile = TILE_BLOOD;
+        const int offset = cell.flv.special % tile_dngn_count(basetile);
+        op(L_FEAT, basetile + offset, x, y);
+    }
+}
+
+static void pack_background(int x, int y, const packed_cell &cell)
+{
+    const tile_with_flags_t bg = cell.bg;
+    const tileidx_t bg_idx = bg.tile();
+
+    if (bg_idx >= TILE_DNGN_FIRST_TRANSPARENT)
+        add_dngn_tile(cell.flv.floor, x, y);
+    if (bg_idx > TILE_WALL_MAX)
+        add_blood_overlay(x, y, cell);
+    add_dngn_tile(bg_idx, x, y, cell.mangrove_water);
+
+    if (bg_idx > TILE_DNGN_UNSEEN)
+    {
+        if (bg_idx <= TILE_WALL_MAX)
+            add_blood_overlay(x, y, cell, bg_idx >= TILE_FLOOR_MAX);
+
+        for (int i = 0; i < cell.num_dngn_overlay; ++i)
+        {
+            const auto tile = cell.dngn_overlay[i];
+            if (tile < TILE_DNGN_MAX)
+                add_dngn_tile(tile, x, y);
+        }
+
+        if (!bg.has_flag(TILE_FLAG_UNSEEN))
+        {
+            if (cell.is_sanctuary)  op(L_FEAT, TILE_SANCTUARY, x, y);
+            if (cell.is_blasphemy)  op(L_FEAT, TILE_BLASPHEMY, x, y);
+            if (cell.is_silenced)   op(L_FEAT, TILE_SILENCED, x, y);
+            if (cell.halo == HALO_RANGE)
+                op(L_FEAT, TILE_HALO_RANGE, x, y);
+            if (cell.halo >= HALO_UMBRA_FIRST && cell.halo <= HALO_UMBRA_LAST)
+                op(L_FEAT, TILE_UMBRA + cell.halo - HALO_UMBRA_FIRST, x, y);
+            if (cell.orb_glow)
+                op(L_FEAT, TILE_ORB_GLOW + cell.orb_glow - 1, x, y);
+            if (cell.quad_glow)
+                op(L_FEAT, TILE_QUAD_GLOW, x, y);
+            if (cell.disjunct)
+                op(L_FEAT, TILE_DISJUNCT + cell.disjunct - 1, x, y);
+            if (cell.awakened_forest)
+                op(L_ICONS, TILEI_BERSERK, x, y);
+            if (cell.has_bfb_corpse)
+                op(L_FEAT, TILE_BLOOD_FOR_BLOOD, x, y);
+
+            if (cell.fg != 0)
+            {
+                const tile_flag_t att = cell.fg.flags(TILE_FLAG_ATT_MASK);
+                if (att == TILE_FLAG_PET)
+                    op(L_FEAT, TILE_HALO_FRIENDLY, x, y);
+                else if (att == TILE_FLAG_GD_NEUTRAL)
+                    op(L_FEAT, TILE_HALO_GD_NEUTRAL, x, y);
+                else if (att == TILE_FLAG_NEUTRAL)
+                    op(L_FEAT, TILE_HALO_NEUTRAL, x, y);
+
+                const tile_flag_t threat = cell.fg.flags(TILE_FLAG_THREAT_MASK);
+                const bool ghost = cell.fg.has_flag(TILE_FLAG_GHOST);
+                if (threat == TILE_FLAG_TRIVIAL)
+                    op(L_FEAT, ghost ? TILE_THREAT_GHOST_TRIVIAL : TILE_THREAT_TRIVIAL, x, y);
+                else if (threat == TILE_FLAG_EASY)
+                    op(L_FEAT, ghost ? TILE_THREAT_GHOST_EASY : TILE_THREAT_EASY, x, y);
+                else if (threat == TILE_FLAG_TOUGH)
+                    op(L_FEAT, ghost ? TILE_THREAT_GHOST_TOUGH : TILE_THREAT_TOUGH, x, y);
+                else if (threat == TILE_FLAG_NASTY)
+                    op(L_FEAT, ghost ? TILE_THREAT_GHOST_NASTY : TILE_THREAT_NASTY, x, y);
+                else if (threat == TILE_FLAG_UNUSUAL)
+                    op(L_FEAT, TILE_THREAT_UNUSUAL, x, y);
+
+                if (cell.is_highlighted_summoner)
+                    op(L_FEAT, TILE_HALO_SUMMONER, x, y);
+            }
+
+            if (bg.has_flag(TILE_FLAG_EXCL_CTR))
+                op(L_FEAT, TILE_TRAVEL_EXCLUSION_CENTRE_BG, x, y);
+            else if (bg.has_flag(TILE_FLAG_TRAV_EXCL))
+                op(L_FEAT, TILE_TRAVEL_EXCLUSION_BG, x, y);
+        }
+
+        if (bg.has_flag(TILE_FLAG_REMEMBERED_INVIS))
+            op(L_FEAT, TILE_REMEMBERED_INVIS, x, y);
+    }
+}
+
+static void pack_foreground(int x, int y, const packed_cell &cell)
+{
+    const tile_with_flags_t fg = cell.fg;
+    const tile_with_flags_t bg = cell.bg;
+    const tileidx_t fg_idx = fg.tile();
+    const bool in_water = is_in_water(cell);
+
+    if (fg_idx && get_tile_texture(fg_idx) == TEX_DEFAULT)
+    {
+        const tileidx_t base_idx = tileidx_known_base_item(fg_idx);
+        if (in_water || cell.cloud)
+        {
+            op(L_MAIN_TRANS, base_idx, x, y, 0, 0, 255, -1, true);
+            op(L_MAIN_TRANS, fg_idx, x, y, 0, 0, 255, -1, true);
+        }
+        else
+        {
+            op(L_MAIN, base_idx, x, y);
+            op(L_MAIN, fg_idx, x, y);
+        }
+    }
+
+    if (fg_idx >= TILE_PARCHMENT_LOW && fg_idx <= TILE_PARCHMENT_HIGH)
+    {
+        if (const item_def *item = cell.map_knowledge.item())
+        {
+            const spell_type spell = static_cast<spell_type>(item->plus);
+            op(L_MAIN, tileidx_parchment_overlay(spell, 0), x, y);
+            op(L_MAIN, tileidx_parchment_overlay(spell, 1), x, y);
+        }
+    }
+
+    if (fg.has_flag(TILE_FLAG_NET)) op(L_ICONS, TILEI_TRAP_NET, x, y);
+    if (fg.has_flag(TILE_FLAG_WEB)) op(L_ICONS, TILEI_TRAP_WEB, x, y);
+
+    if (fg.has_flag(TILE_FLAG_S_UNDER_ARTEFACT))
+        op(L_ICONS, TILEI_ITEM_STACK_3, x, y);
+    else if (fg.has_flag(TILE_FLAG_S_UNDER_GOOD))
+        op(L_ICONS, TILEI_ITEM_STACK_2, x, y);
+    else if (fg.has_flag(TILE_FLAG_S_UNDER))
+        op(L_ICONS, TILEI_ITEM_STACK_1, x, y);
+
+    if (fg.has_flag(TILE_FLAG_ATT_MASK))
+    {
+        const tile_flag_t att = fg.flags(TILE_FLAG_ATT_MASK);
+        if (att == TILE_FLAG_PET)
+            op(L_ICONS, TILEI_FRIENDLY, x, y);
+        else if (att == TILE_FLAG_GD_NEUTRAL)
+            op(L_ICONS, TILEI_GOOD_NEUTRAL, x, y);
+        else if (att == TILE_FLAG_NEUTRAL)
+            op(L_ICONS, TILEI_NEUTRAL, x, y);
+    }
+
+    int shift = 0;
+    if (fg.has_flag(TILE_FLAG_BEH_MASK))
+    {
+        const tile_flag_t beh = fg.flags(TILE_FLAG_BEH_MASK);
+        if (beh == TILE_FLAG_PARALYSED)     { op(L_ICONS, TILEI_PARALYSED, x, y);  shift += 12; }
+        else if (beh == TILE_FLAG_STAB)     { op(L_ICONS, TILEI_STAB_BRAND, x, y); shift += 12; }
+        else if (beh == TILE_FLAG_MAY_STAB) { op(L_ICONS, TILEI_UNAWARE, x, y);    shift += 7; }
+        else if (beh == TILE_FLAG_FLEEING)  { op(L_ICONS, TILEI_FLEEING, x, y);    shift += 3; }
+    }
+
+    if (fg.has_flag(TILE_FLAG_POISON_MASK))
+    {
+        const tile_flag_t p = fg.flags(TILE_FLAG_POISON_MASK);
+        if (p == TILE_FLAG_POISON)           { op(L_ICONS, TILEI_POISON, x, y, -shift);      shift += 6; }
+        else if (p == TILE_FLAG_MORE_POISON) { op(L_ICONS, TILEI_MORE_POISON, x, y, -shift); shift += 6; }
+        else if (p == TILE_FLAG_MAX_POISON)  { op(L_ICONS, TILEI_MAX_POISON, x, y, -shift);  shift += 7; }
+    }
+
+    if (fg.has_flag(TILE_FLAG_REMEMBERED_INVIS))
+        op(L_ICONS, TILEI_UNSEEN_INVIS_REMEMBERED, x, y);
+
+    for (auto icon : cell.icons)
+    {
+        int size = status_icon_size(icon);
+        if (size == 0)
+        {
+            op(L_ICONS, icon, x, y);
+            continue;
+        }
+        op(L_ICONS, icon, x, y, -shift);
+        shift += size < 0 ? 7 : size;
+    }
+
+    if (bg.has_flag(TILE_FLAG_UNSEEN) && (bg != TILE_FLAG_UNSEEN || fg != 0))
+        op(L_ICONS, TILEI_MESH, x, y);
+    if (bg.has_flag(TILE_FLAG_OOR) && (bg != TILE_FLAG_OOR || fg != 0))
+        op(L_ICONS, TILEI_OOR_MESH, x, y);
+    if (bg.has_flag(TILE_FLAG_MM_UNSEEN) && (bg != TILE_FLAG_MM_UNSEEN || fg != 0))
+        op(L_ICONS, TILEI_MAGIC_MAP_MESH, x, y);
+
+    if (bg.has_flag(TILE_FLAG_RAMPAGE))
+        op(L_ICONS, you.duration[DUR_TAILWIND] ? TILEI_RAMPAGE_INSTANT : TILEI_RAMPAGE, x, y);
+    if (bg.has_flag(TILE_FLAG_NEW_STAIR) && shift == 0)
+        op(L_ICONS, TILEI_NEW_STAIR, x, y);
+    if (bg.has_flag(TILE_FLAG_NEW_TRANSPORTER) && shift == 0)
+        op(L_ICONS, TILEI_NEW_TRANSPORTER, x, y);
+
+    if (bg.has_flag(TILE_FLAG_EXCL_CTR) && bg.has_flag(TILE_FLAG_UNSEEN))
+        op(L_ICONS, TILEI_TRAVEL_EXCLUSION_CENTRE_FG, x, y);
+    else if (bg.has_flag(TILE_FLAG_TRAV_EXCL) && bg.has_flag(TILE_FLAG_UNSEEN))
+        op(L_ICONS, TILEI_TRAVEL_EXCLUSION_FG, x, y);
+
+    if (bg.has_flag(TILE_FLAG_TUT_CURSOR))
+        op(L_ICONS, TILEI_TUTORIAL_CURSOR, x, y);
+    else if (bg.has_flag(TILE_FLAG_CURSOR))
+    {
+        const tile_flag_t cf = bg.flags(TILE_FLAG_CURSOR);
+        op(L_ICONS, cf == TILE_FLAG_CURSOR3 ? TILEI_CURSOR3
+                    : cf == TILE_FLAG_CURSOR1 ? TILEI_CURSOR : TILEI_CURSOR2, x, y);
+    }
+
+    if (cell.travel_trail & 0xF)
+        op(L_ICONS, TILEI_TRAVEL_PATH_FROM + (cell.travel_trail & 0xF) - 1, x, y);
+    if (cell.travel_trail & 0xF0)
+        op(L_ICONS, TILEI_TRAVEL_PATH_TO + ((cell.travel_trail & 0xF0) >> 4) - 1, x, y);
+
+    if (fg.has_flag(TILE_FLAG_MDAM_MASK))
+    {
+        const tile_flag_t m = fg.flags(TILE_FLAG_MDAM_MASK);
+        if (m == TILE_FLAG_MDAM_LIGHT)      op(L_ICONS, TILEI_MDAM_LIGHTLY_DAMAGED, x, y);
+        else if (m == TILE_FLAG_MDAM_MOD)   op(L_ICONS, TILEI_MDAM_MODERATELY_DAMAGED, x, y);
+        else if (m == TILE_FLAG_MDAM_HEAVY) op(L_ICONS, TILEI_MDAM_HEAVILY_DAMAGED, x, y);
+        else if (m == TILE_FLAG_MDAM_SEV)   op(L_ICONS, TILEI_MDAM_SEVERELY_DAMAGED, x, y);
+        else if (m == TILE_FLAG_MDAM_ADEAD) op(L_ICONS, TILEI_MDAM_ALMOST_DEAD, x, y);
+    }
+
+    if (fg.has_flag(TILE_FLAG_DEMON))
+    {
+        const tile_flag_t d = fg.flags(TILE_FLAG_DEMON);
+        if (d == TILE_FLAG_DEMON_1)      op(L_ICONS, TILEI_DEMON_NUM1, x, y);
+        else if (d == TILE_FLAG_DEMON_2) op(L_ICONS, TILEI_DEMON_NUM2, x, y);
+        else if (d == TILE_FLAG_DEMON_3) op(L_ICONS, TILEI_DEMON_NUM3, x, y);
+        else if (d == TILE_FLAG_DEMON_4) op(L_ICONS, TILEI_DEMON_NUM4, x, y);
+        else if (d == TILE_FLAG_DEMON_5) op(L_ICONS, TILEI_DEMON_NUM5, x, y);
+    }
+}
+
+static void pack_doll(const dolls_data &doll, int x, int y, bool submerged, bool ghost)
+{
+    vector<tile_def> parts;
+    pack_tilep_set(parts, doll);
+    for (const tile_def &t : parts)
+        op(L_DOLL, t.tile, x, y, 0, 0, ghost ? 150 : 255, t.ymax, submerged);
+}
+
+static void pack_cell(int x, int y, const packed_cell &cell)
+{
+    pack_background(x, y, cell);
+
+    const tileidx_t fg_idx = cell.fg.tile();
+    const bool in_water = is_in_water(cell);
+    tileidx_t cloud_idx = cell.cloud;
+    if (cloud_idx == TILE_CLOUD_INK && player_in_branch(BRANCH_SHOALS))
+        cloud_idx = 0;
+
+    if (fg_idx >= TILEP_MCACHE_START)
+    {
+        if (mcache_entry *entry = mcache.get(fg_idx))
+        {
+            const bool trans = entry->transparent();
+            if (const dolls_data *doll = entry->doll())
+                pack_doll(*doll, x, y, in_water, trans);
+            tile_draw_info dinfo[mcache_entry::MAX_INFO_COUNT];
+            const int n = entry->info(&dinfo[0]);
+            for (int i = 0; i < n; ++i)
+                op(L_DOLL, dinfo[i].idx, x, y, dinfo[i].ofs_x, dinfo[i].ofs_y,
+                   trans ? 150 : 255, -1, in_water);
+        }
+        else
+            op(L_DOLL, TILEP_MONS_UNKNOWN, x, y);
+    }
+    else if (fg_idx == TILEP_PLAYER)
+    {
+        dolls_data result = player_doll;
+        fill_doll_equipment(result);
+        pack_doll(result, x, y, in_water, false);
+    }
+    else if (fg_idx && get_tile_texture(fg_idx) == TEX_PLAYER)
+        op(L_DOLL, fg_idx, x, y, 0, 0, 255, -1, in_water);
+
+    pack_foreground(x, y, cell);
+
+    if (cloud_idx)
+    {
+        if (fg_idx)
+            op(L_MAIN_TRANS, cloud_idx, x, y, 0, 0, 140);
+        else
+            op(L_MAIN, cloud_idx, x, y);
+    }
+
+    for (int i = 0; i < cell.num_dngn_overlay; ++i)
+    {
+        const auto tile = cell.dngn_overlay[i];
+        if (TILE_DNGN_MAX <= tile && tile < TILE_MAIN_MAX)
+        {
+            op(L_MAIN, tileidx_known_base_item(tile), x, y);
+            op(L_MAIN, tile, x, y);
+        }
+    }
+}
+
+static void flush_ops(Canvas &cv)
+{
+    for (int l = 0; l < L_COUNT; ++l)
+    {
+        for (const TileOp &o : layer_ops[l])
+            blit_tile(cv, o.idx, o.x, o.y, o.ox, o.oy, o.alpha, o.ymax, o.submerged);
+        layer_ops[l].clear();
+    }
+}
+#endif // USE_TILE
+
+// ===========================================================================
+// View cache: the last dungeon view crawl handed to puttext()
+// ===========================================================================
+
+#ifdef USE_TILE
+static std::vector<packed_cell> vcells;
+#endif
+static coord_def vsize;           // size of the cached view
+static coord_def vorigin;         // grid coordinate of cached cell (0,0)
+static coord_def vcentre;         // crawl_view.vgrdc at the time
+static bool have_view = false;
+
+// Bottom-screen map geometry
+static const int TS = 16;               // tile pixels
+static const int MAP_COLS = 20, MAP_ROWS = 15;
+static const int MAP_CC = 10, MAP_CR = 7; // centre cell (the player)
+static const int BTN_W = 32;            // edge button columns
+
+static coord_def map_cell_grid(int c, int r)
+{
+    return vcentre + coord_def(c - MAP_CC, r - MAP_CR);
+}
+
+// ===========================================================================
+// Bottom screen: buttons
+// ===========================================================================
+
+struct button
+{
+    int x, y, w, h;
+    const char *label;
+    int key;                 // key to send (0 = special)
+    int special;             // see enum below
+    unsigned tile;           // icon (gui/main tile), 0 = text only
+};
+
+enum { BS_NONE = 0, BS_KEYBOARD, BS_HIDE, BS_YES, BS_NO };
+
+static std::vector<button> buttons;     // rebuilt per frame
+static int pressed_button = -1;
+static bool buttons_hidden = false;
+
+// The two edge columns in play mode.
+static void build_play_buttons()
+{
+    buttons.clear();
+    struct def { const char *label; int key; unsigned tile; int special; };
+#ifdef USE_TILE
+    static const def left[] = {
+        { "explr",   'o',    TILEG_CMD_EXPLORE, 0 },
+        { "fight",   CK_TAB, TILEG_CMD_AUTOFIGHT, 0 },
+        { "rest",    '5',    TILEG_CMD_REST, 0 },
+        { "wait",    's',    TILEG_CMD_WAIT, 0 },
+        { "pick up", 'g',    0, 0 },
+        { "up",      '<',    TILEG_CMD_MAP_FIND_UPSTAIR, 0 },
+        { "down",    '>',    TILEG_CMD_MAP_FIND_DOWNSTAIR, 0 },
+    };
+    static const def right[] = {
+        { "items",   'i',    TILEG_CMD_DISPLAY_INVENTORY, 0 },
+        { "cast",    'z',    TILEG_CMD_CAST_SPELL, 0 },
+        { "abil",    'a',    TILEG_CMD_USE_ABILITY, 0 },
+        { "map",     'X',    TILEG_CMD_DISPLAY_MAP, 0 },
+        { "char",    '%',    TILEG_CMD_DISPLAY_CHARACTER_STATUS, 0 },
+        { "msgs",    CONTROL('P'), TILEG_CMD_REPLAY_MESSAGES, 0 },
+        { "keys",    0,      TILEG_CMD_KEYBOARD, BS_KEYBOARD },
+    };
+#else
+    static const def left[] = {
+        { "explr", 'o', 0, 0 }, { "fight", CK_TAB, 0, 0 }, { "rest", '5', 0, 0 },
+        { "wait", 's', 0, 0 }, { "pick", 'g', 0, 0 }, { "up <", '<', 0, 0 }, { "dn >", '>', 0, 0 },
+    };
+    static const def right[] = {
+        { "items", 'i', 0, 0 }, { "cast", 'z', 0, 0 }, { "abil", 'a', 0, 0 },
+        { "map", 'X', 0, 0 }, { "char", '%', 0, 0 }, { "msgs", CONTROL('P'), 0, 0 },
+        { "keys", 0, 0, BS_KEYBOARD },
+    };
+#endif
+    const int n = 7, bh = 240 / n;
+    for (int i = 0; i < n; ++i)
+    {
+        buttons.push_back({ 0, i * bh, BTN_W, bh, left[i].label, left[i].key, left[i].special, left[i].tile });
+        buttons.push_back({ 320 - BTN_W, i * bh, BTN_W, bh, right[i].label, right[i].key, right[i].special, right[i].tile });
+    }
+}
+
+static void draw_button(Canvas &cv, const button &b, bool pressed, bool translucent)
+{
+    if (translucent)
+        cv_shade(cv, b.x, b.y, b.w, b.h, 12, 12, 20, pressed ? 120 : 170);
+    else
+        cv_fill(cv, b.x, b.y, b.w, b.h, pressed ? 90 : 40, pressed ? 90 : 42, pressed ? 130 : 56);
+    if (pressed)
+        cv_frame(cv, b.x, b.y, b.w, b.h, 250, 230, 120);
+    else
+        cv_frame(cv, b.x, b.y, b.w, b.h, 60, 62, 80);
+    if (b.tile)
+    {
+        blit_tile(cv, b.tile, b.x + (b.w - 16) / 2, b.y + 3);
+        const int lw = text_width(F_SMALL, b.label);
+        draw_text(cv, F_SMALL, b.x + (b.w - lw) / 2, b.y + b.h - 10, b.label, C_TEXT);
+    }
+    else
+    {
+        // text button: label (possibly two words) centred
+        const Font &f = b.w >= 40 ? F_TEXT : F_SMALL;
+        const char *sp = strchr(b.label, ' ');
+        if (sp && f.w * (int)strlen(b.label) > b.w - 2)
+        {
+            std::string a(b.label, sp - b.label), c(sp + 1);
+            draw_text(cv, f, b.x + (b.w - text_width(f, a.c_str())) / 2, b.y + b.h / 2 - f.h, a.c_str(), C_WHITE);
+            draw_text(cv, f, b.x + (b.w - text_width(f, c.c_str())) / 2, b.y + b.h / 2, c.c_str(), C_WHITE);
+        }
+        else
+            draw_text(cv, f, b.x + (b.w - text_width(f, b.label)) / 2, b.y + (b.h - f.h) / 2, b.label, C_WHITE);
+    }
+}
+
+// ===========================================================================
+// Prompt / menu detection from the text grid
+// ===========================================================================
+
+static std::string grid_row_text(int y, int x0 = 0, int x1 = GRID_W)
+{
+    std::string s;
+    if (y < 0 || y >= GRID_H)
+        return s;
+    for (int x = std::max(0, x0); x < std::min(GRID_W, x1); ++x)
+    {
+        char buf[8];
+        const int n = wctoutf8(buf, grid[y][x].glyph ? grid[y][x].glyph : ' ');
+        s.append(buf, n);
+    }
+    while (!s.empty() && s.back() == ' ')
+        s.pop_back();
+    return s;
+}
+
+// Is crawl waiting on a yes/no question in the message pane?
+static bool yesno_prompt_visible()
+{
+    if (mouse_control::current_mode() == MOUSE_MODE_YESNO)
+        return true;
+    const crawl_view_geometry &v = crawl_view;
+    int last = -1;
+    for (int r = 0; r < v.msgsz.y; ++r)
+        if (!grid_row_text(v.msgp.y - 1 + r).empty())
+            last = r;
+    if (last < 0)
+        return false;
+    const std::string s = grid_row_text(v.msgp.y - 1 + last);
+    return s.find("(y/n)") != std::string::npos || s.find("[Y/n]") != std::string::npos
+           || s.find("[y/N]") != std::string::npos || s.find("(Y/n)") != std::string::npos
+           || s.find("(y/N)") != std::string::npos || s.find("[y/n]") != std::string::npos;
+}
+
+static bool more_prompt_visible()
+{
+    if (mouse_control::current_mode() == MOUSE_MODE_MORE)
+        return true;
+    const crawl_view_geometry &v = crawl_view;
+    for (int r = 0; r < v.msgsz.y; ++r)
+        if (grid_row_text(v.msgp.y - 1 + r).find("--more--") != std::string::npos)
+            return true;
+    return false;
+}
+
+// Menu entries in text mode: "x - text", "x + text", "x # text", "x) text",
+// "x. text" or "x: text", possibly several per row (multi-column menus).
+struct menu_entry { int key; int row; int col; int tcol; int tend; };
+
+static bool menu_key_char(char32_t k)
+{
+    return k < 128 && k > ' ' && (isalnum(k) || strchr("$*_!?%^&#@<>{}[]|~=,/'\\\"+-;:", (int)k));
+}
+
+static std::vector<menu_entry> find_menu_entries()
+{
+    std::vector<menu_entry> out;
+    for (int y = 0; y < GRID_H; ++y)
+    {
+        std::vector<menu_entry> row;
+        for (int x = 0; x < GRID_W - 3; ++x)
+        {
+            // an entry starts after a gap: line start or two spaces
+            if (x > 0 && grid[y][x - 1].glyph != ' ')
+                continue;
+            if (x > 1 && grid[y][x - 2].glyph != ' ' && x != 1)
+                continue;
+            const char32_t k = grid[y][x].glyph;
+            if (!menu_key_char(k))
+                continue;
+            const char32_t a = grid[y][x + 1].glyph, b = grid[y][x + 2].glyph, c = grid[y][x + 3].glyph;
+            int t = -1;
+            if (a == ' ' && (b == '-' || b == '+' || b == '#' || b == '=') && c == ' ')
+                t = x + 4;
+            else if ((a == ')' || a == '.' || a == ':') && b == ' ')
+                t = x + 2;
+            if (t < 0)
+                continue;
+            while (t < GRID_W && grid[y][t].glyph == ' ')
+                ++t;
+            if (t >= GRID_W || grid[y][t].glyph == ' ')
+                continue;
+            row.push_back({ (int)k, y, x, t, GRID_W });
+            x = t;
+        }
+        for (size_t i = 0; i < row.size(); ++i)
+        {
+            if (i + 1 < row.size())
+                row[i].tend = row[i + 1].col;
+            out.push_back(row[i]);
+        }
+    }
+    // a lone match is usually prose, not a menu
+    if (out.size() < 2)
+        out.clear();
+    return out;
+}
+
+// ===========================================================================
+// Drawing: top screen
+// ===========================================================================
+
+static const uint8_t *pal(int c) { return palette[c & 15]; }
+
+// Text mode: the whole 80x24 grid in the 5x8 font (5x10 cells).
+static void draw_text_mode_top()
+{
+    Canvas &cv = top_cv;
+    cv_fill(cv, 0, 0, 400, 240, 8, 8, 12);
     for (int y = 0; y < GRID_H; ++y)
         for (int x = 0; x < GRID_W; ++x)
         {
             const cell_t &c = grid[y][x];
-            const bool at_cursor = cursor_is_enabled && x == cx && y == cy;
-            const uint8_t *fg = palette[c.fg & 15];
-            const uint8_t *bg = palette[c.bg & 15];
-            if (at_cursor)
+            const uint8_t *fg = pal(c.fg), *bg = pal(c.bg);
+            if (cursor_is_enabled && x == cx && y == cy)
                 std::swap(fg, bg);
-            draw_glyph(fb, H, x * FONT_W, y * FONT_H, c.glyph, fg, bg);
+            if ((c.bg & 15) != BLACK || (cursor_is_enabled && x == cx && y == cy))
+                cv_fill(cv, x * 5, y * 10, 5, 10, bg[0], bg[1], bg[2]);
+            if (c.glyph != ' ')
+                draw_char(cv, F_SMALL, x * 5, y * 10 + 1, c.glyph, fg, nullptr);
         }
 }
 
-// eye: 0 = mono, -1 left, +1 right
-static void draw_play_top(u8 *fb, int H, int eye, float slider)
+// Copy a grid region with a given font at (px,py).
+static void draw_grid_region(Canvas &cv, const Font &f, int px, int py, int rowh,
+                             coord_def p, coord_def sz, int maxcols, int maxrows)
 {
-    const crawl_view_geometry &v = crawl_view;
-    fill_rect(fb, H, 0, 0, 400, 240, 0, 0, 0);
-
-    // --- viewport: 10x10 cells, centred in the 170 px band above the messages
-    const int vw = v.viewsz.x, vh = v.viewsz.y;
-    const int x0 = (400 - vw * 10) / 2;
-    const int y0 = (170 - vh * 10) / 2;
-    for (int layer = 0; layer < DL_COUNT; ++layer)
+    for (int r = 0; r < sz.y && r < maxrows; ++r)
     {
-        int dx = 0;
-        if (eye != 0 && slider > 0.f)
+        const int gy = p.y - 1 + r;
+        if (gy < 0 || gy >= GRID_H)
+            continue;
+        for (int c = 0; c < sz.x && c < maxcols; ++c)
         {
-            const float par = (float)(layer - DL_PLANE) * kParallaxPx * slider;
-            dx = -(int)(eye * par + (eye * par >= 0 ? 0.5f : -0.5f));
+            const int gx = p.x - 1 + c;
+            if (gx < 0 || gx >= GRID_W)
+                continue;
+            const cell_t &cell = grid[gy][gx];
+            const uint8_t *fg = pal(cell.fg);
+            const uint8_t *bg = (cell.bg & 15) == BLACK ? nullptr : pal(cell.bg);
+            if (cell.glyph != ' ' || bg)
+                draw_char(cv, f, px + c * f.w, py + r * rowh, cell.glyph, fg, bg);
         }
-        for (int r = 0; r < vh; ++r)
-            for (int c = 0; c < vw; ++c)
+    }
+}
+
+static void draw_play_top()
+{
+    Canvas &cv = top_cv;
+    cv_fill(cv, 0, 0, 400, 240, 10, 10, 16);
+    const crawl_view_geometry &v = crawl_view;
+
+    // --- status panel (crawl's HUD text) at 6x13, left
+    const int hud_cols = std::min((int)v.hudsz.x, 42);
+    const int hud_rows = std::min((int)v.hudsz.y, 12);
+    cv_fill(cv, 0, 0, 256, hud_rows * 13 + 4, 16, 16, 26);
+    draw_grid_region(cv, F_TEXT, 3, 2, 13, v.hudp, v.hudsz, hud_cols, hud_rows);
+
+    // --- monsters in view, right column, with their tiles
+    const int mx0 = 262, my0 = 2;
+    draw_text(cv, F_BOLD, mx0, my0, "In view", C_DIM);
+    int row = 0;
+#ifdef USE_TILE
+    if (map_bounds(you.pos()))
+    {
+        vector<monster_info> mons;
+        get_nearby_monster_info(mons);
+        for (size_t i = 0; i < mons.size() && row < 4; )
+        {
+            size_t j = i + 1;
+            while (j < mons.size() && !monster_info::less_than(mons[i], mons[j])
+                   && !monster_info::less_than(mons[j], mons[i]))
+                ++j;
+            const int count = (int)(j - i);
+            const int y = my0 + 16 + row * 18;
+            const tile_with_flags_t t = tileidx_monster(mons[i]);
+            tileidx_t ti = t.tile();
+            if (ti >= TILEP_MCACHE_START)
+                ti = TILEP_MONS_UNKNOWN;
+            cv_fill(cv, mx0, y, 16, 16, 30, 30, 40);
+            blit_tile(cv, ti, mx0, y);
+            string desc;
+            int col = LIGHTGREY;
+            mons[i].to_string(count, desc, col, false, nullptr, false);
+            draw_text(cv, F_TEXT, mx0 + 19, y + 2, desc.c_str(), pal(col), nullptr, 400 - mx0 - 20);
+            ++row;
+            i = j;
+        }
+    }
+#endif
+    if (!row)
+        draw_text(cv, F_TEXT, mx0, my0 + 18, "nothing", C_DIM);
+
+    // --- level minimap (1 px per square), bottom of the right column
+    {
+        const int ox = 400 - GXM - 4, oy = 240 - std::min((int)v.msgsz.y, 8) * 10 - GYM - 6;
+        cv_fill(cv, ox - 2, oy - 2, GXM + 4, GYM + 4, 6, 6, 10);
+        for (int y = 0; y < GYM; ++y)
+            for (int x = 0; x < GXM; ++x)
             {
-                const int gx = v.viewp.x - 1 + c, gy = v.viewp.y - 1 + r;
-                if (gx < 0 || gx >= GRID_W || gy < 0 || gy >= GRID_H)
+                const coord_def gc(x, y);
+                const map_cell &mc = env.map_knowledge(gc);
+                if (!mc.known())
                     continue;
-                const cell_t &cell = grid[gy][gx];
-                const int d = depth_of_glyph(cell.glyph);
-                if (d != layer)
-                {
-                    // floor shows through under elevated cells so parallax
-                    // never opens a hole
-                    if (layer == DL_FLOOR)
-                    {
-                        const uint8_t *bg = palette[cell.bg & 15];
-                        fill_rect(fb, H, x0 + c * 10 + dx, y0 + r * 10, 10, 10, bg[0], bg[1], bg[2]);
-                    }
-                    continue;
-                }
-                const bool at_cursor = cursor_is_enabled && gx == cx && gy == cy;
-                const uint8_t *fg = palette[cell.fg & 15];
-                const uint8_t *bg = palette[cell.bg & 15];
-                if (at_cursor)
-                    std::swap(fg, bg);
-                draw_glyph_wide(fb, H, x0 + c * 10 + dx, y0 + r * 10, cell.glyph, fg, bg);
+                const dungeon_feature_type f = mc.feat();
+                uint8_t r = 70, g = 70, b = 78;                       // floor
+                if (feat_is_wall(f) || feat_is_solid(f)) r = 130, g = 120, b = 105;
+                else if (feat_is_water(f))               r = 40, g = 80, b = 190;
+                else if (feat_is_door(f))                r = 170, g = 110, b = 40;
+                if (feat_is_stair(f))                    r = 250, g = 220, b = 60;
+                if (mc.monsterinfo() && you.see_cell(gc)) r = 240, g = 60, b = 60;
+                if (gc == you.pos())                     r = g = b = 255;
+                uint8_t *p = cv.at(ox + x, oy + y);
+                p[0] = r; p[1] = g; p[2] = b;
             }
+        // the bottom map's window
+        cv_frame(cv, ox + vcentre.x - MAP_CC, oy + vcentre.y - MAP_CR, MAP_COLS, MAP_ROWS, 120, 120, 160);
     }
 
-    // --- messages: 80 cols at 5x10 across the bottom 70 px
-    const int my0 = 240 - v.msgsz.y * FONT_H;
-    for (int r = 0; r < v.msgsz.y; ++r)
+    // --- messages: crawl's message pane at 5x8 (80 cols = 400 px)
+    const int mrows = std::min((int)v.msgsz.y, 8);
+    const int my = 240 - mrows * 10;
+    cv_fill(cv, 0, my - 2, 400, 1, 60, 60, 80);
+    cv_fill(cv, 0, my - 1, 400, 240 - my + 1, 6, 6, 10);
+    for (int r = 0; r < mrows; ++r)
         for (int c = 0; c < v.msgsz.x && c < GRID_W; ++c)
         {
             const int gx = v.msgp.x - 1 + c, gy = v.msgp.y - 1 + r;
-            if (gy < 0 || gy >= GRID_H)
+            if (gy < 0 || gy >= GRID_H || gx < 0 || gx >= GRID_W)
                 continue;
             const cell_t &cell = grid[gy][gx];
-            const bool at_cursor = cursor_is_enabled && gx == cx && gy == cy;
-            const uint8_t *fg = palette[cell.fg & 15];
-            const uint8_t *bg = palette[cell.bg & 15];
-            if (at_cursor)
-                std::swap(fg, bg);
-            draw_glyph(fb, H, c * FONT_W, my0 + r * FONT_H, cell.glyph, fg, bg);
+            if (cell.glyph == ' ')
+                continue;
+            draw_char(cv, F_SMALL, c * 5, my + r * 10 + 1, cell.glyph, pal(cell.fg), nullptr);
         }
-    fill_rect(fb, H, 0, my0 - 1, 400, 1, 60, 60, 70);
+}
+
+// ===========================================================================
+// Drawing: bottom screen
+// ===========================================================================
+
+static void draw_play_bottom()
+{
+    Canvas &cv = bot_cv;
+    cv_fill(cv, 0, 0, 320, 240, 0, 0, 0);
+
+#ifdef USE_TILE
+    if (have_view && atlas_px)
+    {
+        clip_x0 = 0; clip_x1 = 320; clip_y0 = 0; clip_y1 = 240;
+        for (int r = 0; r < MAP_ROWS; ++r)
+            for (int c = 0; c < MAP_COLS; ++c)
+            {
+                const coord_def gc = map_cell_grid(c, r);
+                const coord_def vc = gc - vorigin;
+                if (vc.x < 0 || vc.y < 0 || vc.x >= vsize.x || vc.y >= vsize.y)
+                    continue;
+                pack_cell(c * TS, r * TS, vcells[vc.y * vsize.x + vc.x]);
+            }
+        flush_ops(cv);
+    }
+    else
+#endif
+    {
+        // no tiles: the viewport glyphs, 16 px cells
+        const crawl_view_geometry &v = crawl_view;
+        for (int r = 0; r < MAP_ROWS; ++r)
+            for (int c = 0; c < MAP_COLS; ++c)
+            {
+                const coord_def vp = v.grid2view(map_cell_grid(c, r));
+                const int gx = v.viewp.x - 1 + vp.x - 1, gy = v.viewp.y - 1 + vp.y - 1;
+                if (vp.x < 1 || vp.y < 1 || vp.x > v.viewsz.x || vp.y > v.viewsz.y
+                    || gx < 0 || gx >= GRID_W || gy < 0 || gy >= GRID_H)
+                    continue;
+                const cell_t &cell = grid[gy][gx];
+                draw_char(cv, F_BOLD, c * TS + 5, r * TS + 1, cell.glyph, pal(cell.fg), nullptr);
+            }
+    }
+
+    // edge button columns (outside the 15x15 line of sight)
+    build_play_buttons();
+    if (!buttons_hidden)
+        for (size_t i = 0; i < buttons.size(); ++i)
+            draw_button(cv, buttons[i], (int)i == pressed_button, true);
+
+    // yes / no question: two big buttons over the map
+    if (yesno_prompt_visible())
+    {
+        cv_shade(cv, 40, 176, 240, 56, 0, 0, 0, 170);
+        const button yes = { 56, 182, 96, 44, "Yes", 'y', BS_YES, 0 };
+        const button no  = { 168, 182, 96, 44, "No", 'n', BS_NO, 0 };
+        draw_button(cv, yes, false, false);
+        draw_button(cv, no, false, false);
+        buttons.push_back(yes);
+        buttons.push_back(no);
+    }
+    else if (more_prompt_visible())
+    {
+        const char *m = "--more--  tap to continue";
+        const int w = text_width(F_TEXT, m) + 12;
+        cv_shade(cv, (320 - w) / 2, 222, w, 16, 0, 0, 0, 190);
+        draw_text(cv, F_TEXT, (320 - w) / 2 + 6, 224, m, C_GOLD);
+    }
+}
+
+// Bottom screen in text mode: the menu's entries as touch rows.
+static std::vector<menu_entry> cur_entries;
+static int entries_scroll = 0;
+
+static void build_text_mode_buttons()
+{
+    buttons.clear();
+    const int by = 240 - 30, bw = 64;
+    const struct { const char *l; int k; int s; } bar[] = {
+        { "Esc", ESCAPE, 0 }, { "Enter", CK_ENTER, 0 }, { "Pg Up", '<', 0 },
+        { "Pg Dn", '>', 0 }, { "Keys", 0, BS_KEYBOARD },
+    };
+    for (int i = 0; i < 5; ++i)
+        buttons.push_back({ i * bw, by, bw, 30, bar[i].l, bar[i].k, bar[i].s, 0 });
+}
+
+static void draw_text_mode_bottom()
+{
+    Canvas &cv = bot_cv;
+    cv_fill(cv, 0, 0, 320, 240, 14, 14, 22);
+    cur_entries = find_menu_entries();
+    build_text_mode_buttons();
+    const int n = (int)cur_entries.size();
+    const int cols = n <= 10 ? 1 : n <= 20 ? 2 : 3;
+    const int rows = (n + cols - 1) / cols;
+    const int rowh = std::max(18, std::min(24, (240 - 32) / std::max(1, rows)));
+    const int colw = 320 / cols;
+    if (cur_entries.empty())
+    {
+        draw_text(cv, F_TEXT, 8, 8, "Use the buttons below, or Keys", C_DIM);
+        draw_text(cv, F_TEXT, 8, 24, "for the touch keyboard.", C_DIM);
+        draw_text(cv, F_TEXT, 8, 48, "A = Enter   B = Esc   D-pad = move", C_DIM);
+        draw_text(cv, F_TEXT, 8, 64, "L / R = page up / down", C_DIM);
+    }
+    for (int i = 0; i < n && i < rows * cols; ++i)
+    {
+        const menu_entry &e = cur_entries[i];
+        const int cc = i / rows, rr = i % rows;
+        const int x = cc * colw + 2, y = 2 + rr * rowh;
+        if (y + rowh > 240 - 30)
+            break;
+        // dim entries crawl draws in dark grey (unavailable choices)
+        const int tfg = grid[e.row][e.tcol].fg;
+        const bool dim = tfg == DARKGREY;
+        cv_fill(cv, x, y, colw - 4, rowh - 2, dim ? 22 : 30, dim ? 22 : 32, dim ? 30 : 46);
+        char k[2] = { (char)e.key, 0 };
+        cv_fill(cv, x + 2, y + (rowh - 2 - 14) / 2, 12, 14, 70, 70, 110);
+        draw_text(cv, F_BOLD, x + 5, y + (rowh - 2 - 13) / 2, k, C_GOLD);
+        int px = x + 17;
+        const int ty = y + (rowh - 2 - 13) / 2;
+        for (int gx = e.tcol; gx < e.tend && px + F_TEXT.w <= x + colw - 4; ++gx)
+        {
+            const cell_t &c = grid[e.row][gx];
+            if (c.glyph != ' ')
+                draw_char(cv, F_TEXT, px, ty, c.glyph, pal(c.fg == BLACK ? LIGHTGREY : c.fg), nullptr);
+            px += F_TEXT.w;
+        }
+        buttons.push_back({ x, y, colw - 4, rowh - 2, "", e.key, 0, 0 });
+    }
+    for (size_t i = 0; i < 5; ++i)
+        draw_button(cv, buttons[i], (int)i == pressed_button, false);
+}
+
+// ===========================================================================
+// Touch keyboard overlay
+// ===========================================================================
+
+struct softkey
+{
+    int x, y, w, h;
+    const char *label;
+    int key;
+    int shifted;
+    int special;
+};
+
+enum { SKEY_NONE = 0, SKEY_SHIFT = 1, SKEY_CTRL = 2 };
+
+static const int KEY_W = 26, KEY_H = 34;
+static const int KB_X0 = 4, KB_Y0 = 22;
+
+static const char *row1 = "1234567890-=";
+static const char *row1s = "!@#$%^&*()_+";
+static const char *row2 = "qwertyuiop[]";
+static const char *row2s = "QWERTYUIOP{}";
+static const char *row3 = "asdfghjkl;'\\";
+static const char *row3s = "ASDFGHJKL:\"|";
+static const char *row4 = "zxcvbnm,./`";
+static const char *row4s = "ZXCVBNM<>?~";
+
+static std::vector<softkey> softkeys;
+static bool sticky_shift = false;
+static bool sticky_ctrl  = false;
+static int  pressed_key_index = -1;
+
+static void build_keyboard()
+{
+    softkeys.clear();
+    static char labels[64][2];
+    int nlabel = 0;
+    auto add_row = [&](int row, const char *keys, const char *skeys, int x0)
+    {
+        for (int i = 0; keys[i]; ++i)
+        {
+            softkey k;
+            k.x = x0 + i * KEY_W; k.y = KB_Y0 + row * KEY_H;
+            k.w = KEY_W; k.h = KEY_H;
+            char *lab = labels[nlabel++ % 64];
+            lab[0] = keys[i]; lab[1] = 0;
+            k.label = lab; k.key = keys[i]; k.shifted = skeys[i];
+            k.special = SKEY_NONE;
+            softkeys.push_back(k);
+        }
+    };
+    add_row(0, row1, row1s, KB_X0);
+    add_row(1, row2, row2s, KB_X0);
+    add_row(2, row3, row3s, KB_X0);
+    add_row(3, row4, row4s, KB_X0 + KEY_W / 2);
+
+    const int by = KB_Y0 + 4 * KEY_H;
+    const softkey bottom[] =
+    {
+        { KB_X0,       by, 44, KEY_H, "Shft", 0,        0, SKEY_SHIFT },
+        { KB_X0 + 44,  by, 40, KEY_H, "Ctrl", 0,        0, SKEY_CTRL  },
+        { KB_X0 + 84,  by, 36, KEY_H, "Esc",  ESCAPE,   0, SKEY_NONE  },
+        { KB_X0 + 120, by, 36, KEY_H, "Tab",  CK_TAB,   0, SKEY_NONE  },
+        { KB_X0 + 156, by, 64, KEY_H, "Space",' ',      0, SKEY_NONE  },
+        { KB_X0 + 220, by, 40, KEY_H, "Bksp", CK_BKSP,  0, SKEY_NONE  },
+        { KB_X0 + 260, by, 52, KEY_H, "Enter",CK_ENTER, 0, SKEY_NONE  },
+    };
+    for (const softkey &k : bottom)
+        softkeys.push_back(k);
+}
+
+static void draw_keyboard()
+{
+    Canvas &cv = bot_cv;
+    cv_fill(cv, 0, 0, 320, 240, 18, 18, 26);
+    char status[64];
+    snprintf(status, sizeof(status), "%s%sSELECT or tap here: close",
+             sticky_shift ? "[SHIFT] " : "", sticky_ctrl ? "[CTRL] " : "");
+    draw_text(cv, F_TEXT, 6, 4, status, C_DIM);
+
+    for (size_t i = 0; i < softkeys.size(); ++i)
+    {
+        const softkey &k = softkeys[i];
+        uint8_t kb[3] = { 46, 48, 62 };
+        if ((int)i == pressed_key_index)
+            kb[0] = 110, kb[1] = 110, kb[2] = 150;
+        else if ((k.special == SKEY_SHIFT && sticky_shift) || (k.special == SKEY_CTRL && sticky_ctrl))
+            kb[0] = 70, kb[1] = 120, kb[2] = 70;
+        cv_fill(cv, k.x + 1, k.y + 1, k.w - 2, k.h - 2, kb[0], kb[1], kb[2]);
+
+        const char *label = k.label;
+        char one[2] = { 0, 0 };
+        if (k.special == SKEY_NONE && k.shifted && sticky_shift)
+        {
+            one[0] = (char)k.shifted;
+            label = one;
+        }
+        const Font &f = strlen(label) == 1 ? F_BOLD : F_TEXT;
+        draw_text(cv, f, k.x + (k.w - text_width(f, label)) / 2, k.y + (k.h - f.h) / 2, label, C_WHITE);
+    }
+}
+
+static int softkey_at(int px, int py)
+{
+    for (size_t i = 0; i < softkeys.size(); ++i)
+    {
+        const softkey &k = softkeys[i];
+        if (px >= k.x && px < k.x + k.w && py >= k.y && py < k.y + k.h)
+            return (int)i;
+    }
+    return -1;
+}
+
+// ===========================================================================
+// Screen update
+// ===========================================================================
+
+static void draw_bottom()
+{
+    if (keyboard_overlay)
+        draw_keyboard();
+    else if (crt_mode)
+        draw_text_mode_bottom();
+    else
+        draw_play_bottom();
+    cv_blit(bot_cv, GFX_BOTTOM, GFX_LEFT);
+    gfxFlushBuffers();
+    bottom_dirty = false;
 }
 
 static bool any_dirty()
@@ -359,287 +1448,49 @@ static void clear_dirty()
     grid_all_dirty = false;
 }
 
-static float slider_state()
+static void draw_top()
 {
-    return osGet3DSliderState();
-}
-
-static void blit_top()
-{
-    if (!any_dirty())
-        return;
-    u16 fbw, fbh;
-    u8 *fb = gfxGetFramebuffer(GFX_TOP, GFX_LEFT, &fbw, &fbh);
-    const int H = fbw; // 240
-    const float slider = crt_mode ? 0.f : slider_state();
-
     if (crt_mode)
-    {
-        draw_crt(fb, H);
-        u8 *fbr = gfxGetFramebuffer(GFX_TOP, GFX_RIGHT, &fbw, &fbh);
-        draw_crt(fbr, H);
-    }
+        draw_text_mode_top();
     else
-    {
-        draw_play_top(fb, H, slider > 0.f ? -1 : 0, slider);
-        u8 *fbr = gfxGetFramebuffer(GFX_TOP, GFX_RIGHT, &fbw, &fbh);
-        draw_play_top(fbr, H, slider > 0.f ? 1 : 0, slider);
-    }
+        draw_play_top();
+    // the dashboard is flat: same image for both eyes
+    cv_blit(top_cv, GFX_TOP, GFX_LEFT);
+    cv_blit(top_cv, GFX_TOP, GFX_RIGHT);
     gfxFlushBuffers();
+    top_dirty = false;
 }
 
-// ---------------------------------------------------------------------------
-// Bottom screen: touch keyboard
-// ---------------------------------------------------------------------------
-
-struct softkey
-{
-    int x, y, w, h;      // pixel rect on the bottom screen
-    const char *label;   // what to draw
-    int key;             // crawl key to emit (0 = modifier/special)
-    int shifted;         // key when Shift is sticky (0 = toupper/none)
-    int special;         // 1=shift 2=ctrl 3=none
-};
-
-enum { SKEY_NONE = 0, SKEY_SHIFT = 1, SKEY_CTRL = 2 };
-
-static const int KEY_W = 26, KEY_H = 34, KEY_GAP = 0;
-static const int KB_X0 = 4, KB_Y0 = 22;
-
-// Row layouts: (unshifted, shifted)
-static const char *row1 = "1234567890-=";
-static const char *row1s = "!@#$%^&*()_+";
-static const char *row2 = "qwertyuiop[]";
-static const char *row2s = "QWERTYUIOP{}";
-static const char *row3 = "asdfghjkl;'\\";
-static const char *row3s = "ASDFGHJKL:\"|";
-static const char *row4 = "zxcvbnm,./`";
-static const char *row4s = "ZXCVBNM<>?~";
-
-static std::vector<softkey> softkeys;
-static bool  sticky_shift = false;
-static bool  sticky_ctrl  = false;
-static int   pressed_key_index = -1;
-static bool  bottom_dirty = true;
-
-static void build_keyboard()
-{
-    softkeys.clear();
-    auto add_row = [](int row, const char *keys, const char *skeys, int x0)
-    {
-        for (int i = 0; keys[i]; ++i)
-        {
-            softkey k;
-            k.x = x0 + i * KEY_W; k.y = KB_Y0 + row * KEY_H;
-            k.w = KEY_W; k.h = KEY_H;
-            static char labels[64][2];
-            static int nlabel = 0;
-            char *lab = labels[nlabel++ % 64];
-            lab[0] = keys[i]; lab[1] = 0;
-            k.label = lab; k.key = keys[i]; k.shifted = skeys[i];
-            k.special = SKEY_NONE;
-            softkeys.push_back(k);
-        }
-    };
-    add_row(0, row1, row1s, KB_X0);
-    add_row(1, row2, row2s, KB_X0);
-    add_row(2, row3, row3s, KB_X0);
-    add_row(3, row4, row4s, KB_X0 + KEY_W / 2);
-
-    // Bottom row of wide keys.
-    const int by = KB_Y0 + 4 * KEY_H;
-    const softkey bottom[] =
-    {
-        { KB_X0,            by, 44, KEY_H, "Shft", 0,         0, SKEY_SHIFT },
-        { KB_X0 + 44,       by, 40, KEY_H, "Ctrl", 0,         0, SKEY_CTRL  },
-        { KB_X0 + 84,       by, 36, KEY_H, "Esc",  ESCAPE,    0, SKEY_NONE  },
-        { KB_X0 + 120,      by, 36, KEY_H, "Tab",  CK_TAB,    0, SKEY_NONE  },
-        { KB_X0 + 156,      by, 64, KEY_H, "Space",' ',       0, SKEY_NONE  },
-        { KB_X0 + 220,      by, 40, KEY_H, "Bksp", CK_BKSP,   0, SKEY_NONE  },
-        { KB_X0 + 260,      by, 52, KEY_H, "Enter",CK_ENTER,  0, SKEY_NONE  },
-    };
-    for (const softkey &k : bottom)
-        softkeys.push_back(k);
-}
-
-struct cmdbtn { int x, y, w, h; const char *label; int key; int special; };
-enum { CB_NONE = 0, CB_KEYBOARD = 1 };
-static const cmdbtn cmdbtns[] =
-{
-    { 214,   2, 50, 24, "explr", 'o',      CB_NONE },
-    { 268,   2, 50, 24, "fight", CK_TAB,   CB_NONE },
-    { 214,  30, 50, 24, "rest",  '5',      CB_NONE },
-    { 268,  30, 50, 24, "s.rch", 's',      CB_NONE },
-    { 214,  58, 50, 24, "pick",  'g',      CB_NONE },
-    { 268,  58, 50, 24, "inv",   'i',      CB_NONE },
-    { 214,  86, 50, 24, "map",   'X',      CB_NONE },
-    { 268,  86, 50, 24, "trav",  'G',      CB_NONE },
-    { 214, 114, 50, 24, "pray",  'p',      CB_NONE },
-    { 268, 114, 50, 24, "cast",  'z',      CB_NONE },
-    { 214, 142, 50, 24, "esc",   ESCAPE,   CB_NONE },
-    { 268, 142, 50, 24, "enter", CK_ENTER, CB_NONE },
-    { 214, 176, 104, 26, "keyboard", 0,    CB_KEYBOARD },
-    { 214, 208, 50, 24, "up <",  '<',      CB_NONE },
-    { 268, 208, 50, 24, "dn >",  '>',      CB_NONE },
-};
-static const int ncmdbtns = sizeof(cmdbtns) / sizeof(cmdbtns[0]);
-static int pressed_cmd = -1;
-
-static void draw_keyboard(u8 *fb, int H)
-{
-    static const uint8_t bg[3]     = { 24,  24,  28};
-    static const uint8_t keybg[3]  = { 52,  52,  60};
-    static const uint8_t keyhi[3]  = {110, 110, 140};
-    static const uint8_t stick[3]  = { 70, 110,  70};
-    static const uint8_t fg[3]     = {220, 220, 220};
-    static const uint8_t dim[3]    = {140, 140, 150};
-
-    fill_rect(fb, H, 0, 0, 320, 240, bg[0], bg[1], bg[2]);
-    char status[64];
-    snprintf(status, sizeof(status), "%s%s  SELECT/KB: back to HUD",
-             sticky_shift ? "[SHIFT] " : "", sticky_ctrl ? "[CTRL] " : "");
-    draw_string(fb, H, 4, 6, status, dim, bg);
-
-    for (size_t i = 0; i < softkeys.size(); ++i)
-    {
-        const softkey &k = softkeys[i];
-        const uint8_t *kb = keybg;
-        if ((int)i == pressed_key_index)
-            kb = keyhi;
-        else if ((k.special == SKEY_SHIFT && sticky_shift)
-                 || (k.special == SKEY_CTRL && sticky_ctrl))
-            kb = stick;
-        fill_rect(fb, H, k.x + 1, k.y + 1, k.w - 2, k.h - 2, kb[0], kb[1], kb[2]);
-
-        const char *label = k.label;
-        char one[2] = {0, 0};
-        if (k.special == SKEY_NONE && k.shifted && sticky_shift)
-        {
-            one[0] = (char)k.shifted;
-            label = one;
-        }
-        const int lw = (int)strlen(label) * FONT_W;
-        draw_string(fb, H, k.x + (k.w - lw) / 2, k.y + (k.h - FONT_H) / 2,
-                    label, fg, kb);
-    }
-}
-
-static void draw_hud_bottom(u8 *fb, int H)
-{
-    static const uint8_t bg[3]    = { 0, 0, 0 };
-    static const uint8_t panel[3] = { 24, 24, 30 };
-    static const uint8_t keybg[3] = { 52, 52, 60 };
-    static const uint8_t keyhi[3] = { 110, 110, 140 };
-    static const uint8_t fg[3]    = { 220, 220, 220 };
-
-    fill_rect(fb, H, 0, 0, 320, 240, bg[0], bg[1], bg[2]);
-    const crawl_view_geometry &v = crawl_view;
-
-    // HUD then monster list, stacked in the left column at 5x10
-    int row = 0;
-    auto draw_region = [&](coord_def p, coord_def sz, int maxrows) {
-        for (int r = 0; r < sz.y && row < maxrows; ++r, ++row)
-            for (int c = 0; c < sz.x && c < 42; ++c)
-            {
-                const int gx = p.x - 1 + c, gy = p.y - 1 + r;
-                if (gx < 0 || gx >= GRID_W || gy < 0 || gy >= GRID_H)
-                    continue;
-                const cell_t &cell = grid[gy][gx];
-                draw_glyph(fb, H, c * FONT_W, row * FONT_H, cell.glyph,
-                           palette[cell.fg & 15], palette[cell.bg & 15]);
-            }
-    };
-    draw_region(v.hudp, v.hudsz, 24);
-    draw_region(v.mlistp, v.mlistsz, 24);
-
-    // command buttons
-    fill_rect(fb, H, 210, 0, 110, 240, panel[0], panel[1], panel[2]);
-    for (int i = 0; i < ncmdbtns; ++i)
-    {
-        const cmdbtn &b = cmdbtns[i];
-        const uint8_t *kb = (i == pressed_cmd) ? keyhi : keybg;
-        fill_rect(fb, H, b.x, b.y, b.w, b.h, kb[0], kb[1], kb[2]);
-        const int lw = (int)strlen(b.label) * FONT_W;
-        draw_string(fb, H, b.x + (b.w - lw) / 2, b.y + (b.h - FONT_H) / 2, b.label, fg, kb);
-    }
-}
-
-static void draw_bottom()
-{
-    u16 fbw, fbh;
-    u8 *fb = gfxGetFramebuffer(GFX_BOTTOM, GFX_LEFT, &fbw, &fbh);
-    const int H = fbw; // 240
-    if (keyboard_overlay || crt_mode)
-        draw_keyboard(fb, H);
-    else
-        draw_hud_bottom(fb, H);
-    gfxFlushBuffers();
-    bottom_dirty = false;
-}
-
-static int cmdbtn_at(int px, int py)
-{
-    for (int i = 0; i < ncmdbtns; ++i)
-    {
-        const cmdbtn &b = cmdbtns[i];
-        if (px >= b.x && px < b.x + b.w && py >= b.y && py < b.y + b.h)
-            return i;
-    }
-    return -1;
-}
-
-static int softkey_at(int px, int py)
-{
-    for (size_t i = 0; i < softkeys.size(); ++i)
-    {
-        const softkey &k = softkeys[i];
-        if (px >= k.x && px < k.x + k.w && py >= k.y && py < k.y + k.h)
-            return (int)i;
-    }
-    return -1;
-}
-
-// ---------------------------------------------------------------------------
+// ===========================================================================
 // Input
-// ---------------------------------------------------------------------------
+// ===========================================================================
 
 static std::deque<int> keyq;
+static std::deque<coord_def> tapq;       // map taps (grid coords)
 
-static int apply_modifiers(int key)
-{
-    if (key <= 0)
-        return key; // CK_* codes: modifiers don't apply
-    if (sticky_shift && key >= 'a' && key <= 'z')
-        key = toupper(key);
-    if (sticky_ctrl && isalpha(key))
-        key = CONTROL(toupper(key));
-    sticky_shift = sticky_ctrl = false;
-    bottom_dirty = true;
-    return key;
-}
-
-// Physical button map. Edit here to taste.
+// Physical buttons: play mode / text mode.
 struct keymap_3ds
 {
     u32 button;
-    int key;          // plain
-    int key_with_l;   // when L is held (0 = same)
+    int play;
+    int text;
 };
 
 static const keymap_3ds button_map[] =
 {
-    { KEY_DUP,    CK_UP,    CK_SHIFT_UP    },
-    { KEY_DDOWN,  CK_DOWN,  CK_SHIFT_DOWN  },
-    { KEY_DLEFT,  CK_LEFT,  CK_SHIFT_LEFT  },
-    { KEY_DRIGHT, CK_RIGHT, CK_SHIFT_RIGHT },
-    { KEY_A,      CK_ENTER, CK_ENTER       },
-    { KEY_B,      ESCAPE,   ESCAPE         },
-    { KEY_X,      'o',      'G'            },   // explore / travel
-    { KEY_Y,      CK_TAB,   'p'            },   // autofight / pray
-    { KEY_R,      '5',      's'            },   // rest / wait a turn
-    { KEY_ZL,     'i',      'I'            },   // inventory / spell list
-    { KEY_ZR,     'g',      ','            },   // pick up
-    { KEY_START,  'S',      'S'            },   // save and quit
+    { KEY_DUP,    CK_UP,    CK_UP    },
+    { KEY_DDOWN,  CK_DOWN,  CK_DOWN  },
+    { KEY_DLEFT,  CK_LEFT,  CK_LEFT  },
+    { KEY_DRIGHT, CK_RIGHT, CK_RIGHT },
+    { KEY_A,      CK_TAB,   CK_ENTER },   // autofight / confirm
+    { KEY_B,      ESCAPE,   ESCAPE   },
+    { KEY_X,      'o',      '?'      },   // explore / help
+    { KEY_Y,      'g',      ' '      },   // pick up / next page
+    { KEY_L,      's',      '<'      },   // wait a turn / page up
+    { KEY_R,      '5',      '>'      },   // rest / page down
+    { KEY_ZL,     'i',      'i'      },   // inventory
+    { KEY_ZR,     'z',      'z'      },   // cast
+    { KEY_START,  ESCAPE,   ESCAPE   },
 };
 
 // Circle pad -> 8-way numpad with auto-repeat.
@@ -664,35 +1515,78 @@ static int cpad_dir_key(const circlePosition &cp)
     return 0;
 }
 
-static u64  cpad_next_ms = 0;
-static int  cpad_last_key = 0;
+static u64 cpad_next_ms = 0;
+static int cpad_last_key = 0;
+
+static int button_at(int px, int py)
+{
+    for (int i = (int)buttons.size() - 1; i >= 0; --i)
+    {
+        const button &b = buttons[i];
+        if (px >= b.x && px < b.x + b.w && py >= b.y && py < b.y + b.h)
+            return i;
+    }
+    return -1;
+}
+
+static void press_button(const button &b)
+{
+    if (b.special == BS_KEYBOARD)
+    {
+        keyboard_overlay = true;
+        return;
+    }
+    if (b.key)
+        keyq.push_back(b.key);
+}
+
+// Text entry prompts (name, travel destination, search...) bring up the
+// keyboard by themselves, and put it away again when the prompt ends.
+static bool kb_auto = false;
+static void auto_keyboard()
+{
+    const bool prompt = mouse_control::current_mode() == MOUSE_MODE_PROMPT;
+    if (prompt && !keyboard_overlay)
+    {
+        keyboard_overlay = kb_auto = true;
+        bottom_dirty = true;
+    }
+    else if (!prompt && kb_auto)
+    {
+        keyboard_overlay = kb_auto = false;
+        bottom_dirty = true;
+    }
+}
 
 static void poll_input()
 {
+    auto_keyboard();
     hidScanInput();
     const u32 down = hidKeysDown();
-    const u32 held = hidKeysHeld();
     const u32 rep  = hidKeysDownRepeat();
-    const bool lmod = held & KEY_L;
 
-    // SELECT toggles the touch keyboard overlay
     if (down & KEY_SELECT)
     {
         keyboard_overlay = !keyboard_overlay;
+        kb_auto = false;
         bottom_dirty = true;
     }
 
+    const bool yesno = !crt_mode && yesno_prompt_visible();
+    const bool more = !crt_mode && more_prompt_visible();
     for (const keymap_3ds &m : button_map)
     {
         const bool is_dir = m.button & (KEY_DUP | KEY_DDOWN | KEY_DLEFT | KEY_DRIGHT);
         if ((is_dir ? rep : down) & m.button)
         {
-            int k = (lmod && m.key_with_l) ? m.key_with_l : m.key;
-            keyq.push_back(apply_modifiers(k));
+            int k = crt_mode || keyboard_overlay ? m.text : m.play;
+            if (yesno && m.button == KEY_A) k = 'y';
+            if (yesno && m.button == KEY_B) k = 'n';
+            if (more && m.button == KEY_A) k = CK_ENTER;
+            keyq.push_back(k);
         }
     }
 
-    // circle pad
     circlePosition cp;
     hidCircleRead(&cp);
     const int dk = cpad_dir_key(cp);
@@ -706,79 +1600,140 @@ static void poll_input()
         cpad_last_key = dk;
     }
 
-    // touch: command buttons (HUD view) or the keyboard overlay
     if (down & KEY_TOUCH)
     {
         touchPosition tp;
         hidTouchRead(&tp);
         bottom_dirty = true;
-        if (!keyboard_overlay && !crt_mode)
+        if (keyboard_overlay)
         {
-            const int b = cmdbtn_at(tp.px, tp.py);
-            pressed_cmd = b;
-            if (b >= 0)
+            if (tp.py < KB_Y0)
             {
-                if (cmdbtns[b].special == CB_KEYBOARD)
-                    keyboard_overlay = true;
+                keyboard_overlay = kb_auto = false;
+                return;
+            }
+            const int i = softkey_at(tp.px, tp.py);
+            pressed_key_index = i;
+            if (i >= 0)
+            {
+                const softkey &k = softkeys[i];
+                if (k.special == SKEY_SHIFT)
+                    sticky_shift = !sticky_shift;
+                else if (k.special == SKEY_CTRL)
+                    sticky_ctrl = !sticky_ctrl;
                 else
-                    keyq.push_back(apply_modifiers(cmdbtns[b].key));
-            }
-        }
-        else
-        {
-        const int i = softkey_at(tp.px, tp.py);
-        pressed_key_index = i;
-        if (i >= 0)
-        {
-            const softkey &k = softkeys[i];
-            if (k.special == SKEY_SHIFT)
-                sticky_shift = !sticky_shift;
-            else if (k.special == SKEY_CTRL)
-                sticky_ctrl = !sticky_ctrl;
-            else
-            {
-                int key = k.key;
-                if (k.shifted && sticky_shift)
                 {
-                    key = k.shifted;
-                    sticky_shift = false;
+                    int key = k.key;
+                    if (k.shifted && sticky_shift)
+                        key = k.shifted, sticky_shift = false;
+                    if (sticky_ctrl && key > 0 && key < 128 && isalpha(key))
+                        key = CONTROL(toupper(key)), sticky_ctrl = false;
+                    keyq.push_back(key);
                 }
-                if (sticky_ctrl && isalpha(key))
-                {
-                    key = CONTROL(toupper(key));
-                    sticky_ctrl = false;
-                }
-                keyq.push_back(key);
             }
+            return;
         }
+
+        const int b = button_at(tp.px, tp.py);
+        if (b >= 0 && (crt_mode || !buttons_hidden || buttons[b].special == BS_YES
+                       || buttons[b].special == BS_NO))
+        {
+            pressed_button = b;
+            press_button(buttons[b]);
+            return;
         }
+        if (crt_mode)
+            return;
+        if (more)
+        {
+            keyq.push_back(CK_ENTER);
+            return;
+        }
+        // a map square
+        const int c = tp.px / TS, r = tp.py / TS;
+        if (c >= 0 && c < MAP_COLS && r >= 0 && r < MAP_ROWS)
+            tapq.push_back(map_cell_grid(c, r));
     }
-    if ((hidKeysUp() & KEY_TOUCH) && (pressed_key_index >= 0 || pressed_cmd >= 0))
+    if ((hidKeysUp() & KEY_TOUCH) && (pressed_key_index >= 0 || pressed_button >= 0))
     {
         pressed_key_index = -1;
-        pressed_cmd = -1;
+        pressed_button = -1;
         bottom_dirty = true;
     }
 }
 
-// ---------------------------------------------------------------------------
+// A tap on the map, mirroring webtiles' cell click: travel / move / attack
+// in command mode, select in targeting mode. Tapping yourself picks up or
+// takes the stairs you stand on.
+static int handle_tap(const coord_def &gc)
+{
+    const mouse_mode mode = mouse_control::current_mode();
+    if (mode == MOUSE_MODE_COMMAND)
+    {
+        if (gc == you.pos())
+        {
+            const command_type dir = feat_stair_direction(env.grid(gc));
+            if (dir == CMD_GO_UPSTAIRS)
+                return '<';
+            if (dir == CMD_GO_DOWNSTAIRS)
+                return '>';
+            if (env.igrid(gc) != NON_ITEM)
+                return 'g';
+            return 's';
+        }
+        if (!in_bounds(gc))
+            return CK_MOUSE_CMD;
+        const command_type c = click_travel(gc, false, false);
+        if (c != CMD_NO_CMD)
+        {
+            clear_messages();
+            process_command(c);
+        }
+        return CK_MOUSE_CMD;
+    }
+    if (mode == MOUSE_MODE_TARGET || mode == MOUSE_MODE_TARGET_DIR
+        || mode == MOUSE_MODE_TARGET_PATH)
+    {
+        if (targeting_mouse_select(gc))
+            return CK_MOUSE_CMD;
+        return CK_REDRAW;
+    }
+    return CK_MOUSE_CLICK;
+}
+
+// ===========================================================================
 // Early init (called from main() before anything touches the filesystem)
-// ---------------------------------------------------------------------------
+// ===========================================================================
 
 static bool gfx_inited = false;
 static bool headless = false;
 
 bool in_headless_mode() { return headless; }
+
+#ifndef __3DS_HARNESS__
+// newlib declares sigprocmask but the 3DS has no signals; crawl's webtiles
+// framework (compiled in for the tile data) brackets socket writes with it.
+#include <signal.h>
+extern "C" int sigprocmask(int, const sigset_t *, sigset_t *old)
+{
+    if (old)
+        memset(old, 0, sizeof(*old));
+    return 0;
+}
+#endif
 void enter_headless_mode() { headless = true; }
 
 void lib3ds_early_init()
 {
     gfxInitDefault();
     gfx_inited = true;
-    // Debug console on the bottom screen so startup errors (missing data,
-    // bad rc file...) are visible; console_startup() takes it over later.
+    // Debug console on the bottom screen so startup errors and the first-run
+    // database / level-cache progress are visible; console_startup() takes
+    // the screens over later.
     consoleInit(GFX_BOTTOM, nullptr);
-    printf("DCSS 3DS: starting\n");
+    printf("Dungeon Crawl Stone Soup for 3DS\n\n");
+    printf("The first start builds the game databases\n");
+    printf("and level cache: this takes a few minutes.\n\n");
 
     Result rc = romfsInit();
     if (R_FAILED(rc))
@@ -790,17 +1745,14 @@ void lib3ds_early_init()
     mkdir("sdmc:/3ds/crawl/morgue", 0777);
 
     // SQLite's default unix VFS locks files with fcntl(), which newlib on the
-    // 3DS doesn't implement: the first database write fails and Crawl exits.
-    // Only Crawl touches its databases, so use the no-locking VFS.
+    // 3DS doesn't implement. Only Crawl touches its databases.
     if (sqlite3_vfs *nolock = sqlite3_vfs_find("unix-none"))
         sqlite3_vfs_register(nolock, 1);
 
-    // Give the rest of startup the New 3DS clock.
     osSetSpeedupEnable(true);
 }
 
-// Called from end() on a fatal exit: show the reason and wait, otherwise the
-// app returns to the Homebrew Launcher before the message can be read.
+// Called from end() on a fatal exit: show the reason and wait.
 void lib3ds_fatal_wait(const char *msg)
 {
     if (!gfx_inited)
@@ -808,6 +1760,7 @@ void lib3ds_fatal_wait(const char *msg)
         gfxInitDefault();
         gfx_inited = true;
     }
+    gfxSetScreenFormat(GFX_BOTTOM, GSP_RGB565_OES);
     consoleInit(GFX_BOTTOM, nullptr);
     printf("\x1b[2J\x1b[1;1HDCSS 3DS stopped with an error:\n\n%s\n\nPress START to exit.\n", msg ? msg : "");
     while (aptMainLoop())
@@ -820,9 +1773,9 @@ void lib3ds_fatal_wait(const char *msg)
     }
 }
 
-// ---------------------------------------------------------------------------
+// ===========================================================================
 // libconsole.h implementation
-// ---------------------------------------------------------------------------
+// ===========================================================================
 
 void console_startup()
 {
@@ -833,6 +1786,16 @@ void console_startup()
         gfxInitDefault();
         gfx_inited = true;
     }
+    // From here on we own both screens. Anything crawl still prints to
+    // stdout/stderr goes to a log file: the libctru console would draw 16-bit
+    // text into our 24-bit framebuffer (that was the garbled bottom screen).
+    fflush(stdout);
+    fflush(stderr);
+#ifndef __3DS_HARNESS__
+    freopen("sdmc:/3ds/crawl/stdout.txt", "w", stdout);
+    freopen("sdmc:/3ds/crawl/stdout.txt", "a", stderr);
+#endif
+
     gfxSetScreenFormat(GFX_TOP, GSP_BGR8_OES);
     gfxSetScreenFormat(GFX_BOTTOM, GSP_BGR8_OES);
     gfxSetDoubleBuffering(GFX_TOP, false);
@@ -840,15 +1803,16 @@ void console_startup()
     gfxSet3D(true);
     osSetSpeedupEnable(true);           // New 3DS: 804 MHz + L2
     crt_mode = true;
-    hidSetRepeatParameters(18, 5);      // frames: initial delay, repeat
+    hidSetRepeatParameters(18, 5);
 
     for (int y = 0; y < GRID_H; ++y)
         for (int x = 0; x < GRID_W; ++x)
             grid[y][x] = { ' ', LIGHTGREY, BLACK, 1 };
     grid_all_dirty = true;
 
+    load_atlas();
     build_keyboard();
-    bottom_dirty = true;
+    bottom_dirty = top_dirty = true;
 
     textcolour(LIGHTGREY);
     cursor_is_enabled = false;
@@ -858,7 +1822,7 @@ void console_startup()
     crawl_state.terminal_resize_check   = nullptr;
 
     draw_bottom();
-    blit_top();
+    draw_top();
 }
 
 void console_shutdown()
@@ -868,7 +1832,6 @@ void console_shutdown()
     inited = false;
     // no romfsExit(): files may still be open and are closed after this
     gfxExit();
-    gfx_inited = false;
 }
 
 bool is_cursor_enabled()
@@ -878,23 +1841,34 @@ bool is_cursor_enabled()
 
 void set_cursor_enabled(bool enabled)
 {
-    if (enabled == cursor_is_enabled)
-        return;
-    cursor_is_enabled = enabled;
-    if (cy < GRID_H && cx < GRID_W)
-        grid[cy][cx].dirty = 1;
+    if (cursor_is_enabled != enabled)
+    {
+        cursor_is_enabled = enabled;
+        if (cx >= 0 && cx < GRID_W && cy >= 0 && cy < GRID_H)
+            grid[cy][cx].dirty = 1;
+    }
 }
 
 void set_mouse_enabled(bool /*enabled*/)
 {
 }
 
+COLOURS default_hover_colour()
+{
+    return BLUE;
+}
+
+// Menus park a "fake cursor" on the selected line; we have a real one.
+void fakecursorxy(int x, int y)
+{
+    gotoxy_sys(x, y);
+    set_cursor_region(GOTO_CRT);
+}
+
 void clear_to_end_of_line()
 {
     for (int x = cx; x < GRID_W; ++x)
-    {
         grid[cy][x] = { ' ', current_fg, current_bg, 1 };
-    }
 }
 
 void clrscr_sys()
@@ -908,75 +1882,64 @@ void clrscr_sys()
 
 void gotoxy_sys(int x, int y)
 {
-    if (x < 1) x = 1;
-    if (y < 1) y = 1;
-    if (x > GRID_W) x = GRID_W;
-    if (y > GRID_H) y = GRID_H;
-    if (cursor_is_enabled)
+    if (cursor_is_enabled && cx >= 0 && cx < GRID_W && cy >= 0 && cy < GRID_H)
         grid[cy][cx].dirty = 1;
     cx = x - 1;
     cy = y - 1;
+    if (cx < 0) cx = 0;
+    if (cx >= GRID_W) cx = GRID_W - 1;
+    if (cy < 0) cy = 0;
+    if (cy >= GRID_H) cy = GRID_H - 1;
     if (cursor_is_enabled)
         grid[cy][cx].dirty = 1;
 }
 
-// --- colour / highlight handling, same logic as the DOS/Win32 backends ---
-
 static unsigned short _dos_reverse_highlight(unsigned short colour)
 {
-    if (colour == BLACK)
-        colour = (DARKGREY << 4);
-    else
-        colour = (colour & 0xF) << 4;
-    return colour;
+    return (colour & 0xF) << 4 | (colour >> 4 & 0xF);
 }
 
 static unsigned short _dos_do_highlight(unsigned short colour,
-                                        unsigned short highlite)
+                                        unsigned short highlight)
 {
-    if (!highlite)
-        return colour;
-    if (colour == highlite)
-        colour = 0;
-    colour |= (highlite << 4);
-    return colour;
+    return (colour & 0xF0) | highlight;
 }
 
 static unsigned short _dos_highlight(unsigned short colour, unsigned highlight)
 {
-    if ((highlight & CHATTR_ATTRMASK) == CHATTR_NORMAL)
-        return colour;
-    colour &= 0xFF;
+    if (highlight == CHATTR_REVERSE)
+        return _dos_reverse_highlight(colour);
     if ((highlight & CHATTR_ATTRMASK) == CHATTR_HILITE)
         return _dos_do_highlight(colour, (highlight & CHATTR_COLMASK) >> 8);
-    else
-        return _dos_reverse_highlight(colour);
+    return colour;
 }
 
 static inline unsigned get_highlight(int col)
 {
     return ((col & COLFLAG_UNUSUAL_MASK) == COLFLAG_UNUSUAL_MASK) ?
                                               Options.unusual_highlight :
-           (col & COLFLAG_FRIENDLY_MONSTER) ? Options.friend_highlight :
-           (col & COLFLAG_NEUTRAL_MONSTER)  ? Options.neutral_highlight :
-           (col & COLFLAG_ITEM_HEAP)        ? Options.heap_highlight :
-           (col & COLFLAG_WILLSTAB)         ? Options.stab_highlight :
-           (col & COLFLAG_MAYSTAB)          ? Options.may_stab_highlight :
-           (col & COLFLAG_FEATURE_ITEM)     ? Options.feature_item_highlight :
-           (col & COLFLAG_TRAP_ITEM)        ? Options.trap_item_highlight :
-           (col & COLFLAG_REVERSE)          ? unsigned{CHATTR_REVERSE}
-                                            : unsigned{CHATTR_NORMAL};
+       (col & COLFLAG_FRIENDLY_MONSTER) ? Options.friend_highlight :
+       (col & COLFLAG_NEUTRAL_MONSTER)  ? Options.neutral_highlight :
+       (col & COLFLAG_ITEM_HEAP)        ? Options.heap_highlight :
+       (col & COLFLAG_WILLSTAB)         ? Options.stab_highlight :
+       (col & COLFLAG_MAYSTAB)          ? Options.may_stab_highlight :
+       (col & COLFLAG_FEATURE_ITEM)     ? Options.feature_item_highlight :
+       (col & COLFLAG_TRAP_ITEM)        ? Options.trap_item_highlight :
+       (col & COLFLAG_REVERSE)          ? CHATTR_REVERSE
+                                        : CHATTR_NORMAL;
 }
 
 static void update_text_colours(int highlight)
 {
-    unsigned short highlighted_bg_fg = _dos_highlight(FG_COL, highlight);
-    const bool highlight_overrides_bg = highlighted_bg_fg & 0xF0;
-    const short fg = highlighted_bg_fg & 0x0F;
-    const short bg = highlight_overrides_bg ? (highlighted_bg_fg & 0xF0) >> 4
-                                            : BG_COL;
-    current_fg = (uint8_t)Options.colour[fg];
-    current_bg = (uint8_t)Options.colour[bg];
+    unsigned short fg = FG_COL, bg = BG_COL;
+    if (highlight != CHATTR_NORMAL)
+    {
+        const unsigned short c = _dos_highlight(fg | bg << 4, highlight);
+        fg = c & 0xF;
+        bg = c >> 4 & 0xF;
+    }
+    current_fg = fg;
+    current_bg = bg;
 }
 
 void textcolour(int c)
@@ -989,11 +1952,6 @@ void textbackground(int c)
 {
     BG_COL = static_cast<COLOURS>(c & 0xF);
     update_text_colours(get_highlight(c));
-}
-
-COLOURS default_hover_colour()
-{
-    return DARKGREY;
 }
 
 lib_display_info::lib_display_info()
@@ -1026,16 +1984,14 @@ static void write_char(char32_t c)
     }
     grid[cy][cx] = { c, current_fg, current_bg, 1 };
     // Text landing in the viewport that did not come from puttext() means
-    // crawl is drawing a full-screen interface over the map (menus,
-    // inventory, level map, the start screen...). Switch to CRT mode until
-    // puttext() paints the map again.
+    // crawl is drawing a full-screen interface over the map.
     if (!in_puttext && !crt_mode && c != ' ' && region_of(cx, cy) == RG_VIEW)
     {
         crt_mode = true;
         grid_all_dirty = true;
         bottom_dirty = true;
+        entries_scroll = 0;
     }
-    // like libw32c: the cursor parks on the last column, never past it
     if (++cx >= GRID_W)
         cx = GRID_W - 1;
 }
@@ -1097,6 +2053,14 @@ int getch_ck()
             return ESCAPE;
         }
         poll_input();
+        if (!tapq.empty())
+        {
+            const coord_def gc = tapq.front();
+            tapq.pop_front();
+            const int k = handle_tap(gc);
+            update_screen();
+            return k;
+        }
         if (bottom_dirty)
             draw_bottom();
         gspWaitForVBlank();
@@ -1110,7 +2074,7 @@ bool kbhit()
 {
     if (crawl_state.seen_hups)
         return false;
-    if (keyq.empty())
+    if (keyq.empty() && tapq.empty())
     {
         if (!aptMainLoop())
         {
@@ -1121,7 +2085,7 @@ bool kbhit()
         if (bottom_dirty)
             draw_bottom();
     }
-    return !keyq.empty();
+    return !keyq.empty() || !tapq.empty();
 }
 
 void delay(unsigned int ms)
@@ -1135,8 +2099,8 @@ void delay(unsigned int ms)
 void puttext(int x1, int y1, const crawl_view_buffer &vbuf)
 {
     // The dungeon view arrives here wholesale; a buffer that matches the
-    // viewport ends CRT mode. Anything else (the full-screen level map, the
-    // arena...) is a full-screen interface and keeps/enters CRT mode.
+    // viewport ends text mode. Anything else (the full-screen level map,
+    // the arena...) is a full-screen interface and keeps/enters text mode.
     const coord_def size = vbuf.size();
     const bool is_viewport = x1 == crawl_view.viewp.x && y1 == crawl_view.viewp.y
                              && size == crawl_view.viewsz;
@@ -1148,6 +2112,19 @@ void puttext(int x1, int y1, const crawl_view_buffer &vbuf)
         bottom_dirty = true;
     }
     const screen_cell_t *cell = vbuf;
+    if (is_viewport)
+    {
+        vsize = size;
+        vcentre = crawl_view.vgrdc;
+        vorigin = crawl_view.view2grid(coord_def(1, 1));
+#ifdef USE_TILE
+        vcells.resize(size.x * size.y);
+        for (int i = 0; i < size.x * size.y; ++i)
+            vcells[i] = cell[i].tile;
+#endif
+        have_view = true;
+        bottom_dirty = true;
+    }
     for (int y = 0; y < size.y; ++y)
     {
         cgotoxy(x1, y1 + y);
@@ -1167,8 +2144,12 @@ void update_screen()
     if (!inited)
         return;
     if (any_dirty())
+    {
+        top_dirty = true;
         bottom_dirty = true;
-    blit_top();
+    }
+    if (top_dirty)
+        draw_top();
     if (bottom_dirty)
         draw_bottom();
     clear_dirty();
