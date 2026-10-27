@@ -815,7 +815,10 @@ static void flush_ops(Canvas &cv)
 // ===========================================================================
 
 #ifdef USE_TILE
-static std::vector<packed_cell> vcells;
+// Heap-allocated on purpose: packed_cells own map_cell items/monster_info,
+// and destroying them as a static after crawl's own globals are gone (at
+// process exit) crashed on HOME. They are cleared in console_shutdown().
+static std::vector<packed_cell> &vcells = *new std::vector<packed_cell>;
 #endif
 static coord_def vsize;           // size of the cached view
 static coord_def vorigin;         // grid coordinate of cached cell (0,0)
@@ -1841,6 +1844,11 @@ void console_shutdown()
     if (!inited)
         return;
     inited = false;
+#ifdef USE_TILE
+    vcells.clear();
+    vcells.shrink_to_fit();
+    have_view = false;
+#endif
     // no romfsExit(): files may still be open and are closed after this
     gfxExit();
 }
