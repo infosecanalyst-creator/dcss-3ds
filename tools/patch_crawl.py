@@ -335,7 +335,7 @@ else:
         print("  = Makefile       3dsx rules already present")
 
 # -------------------------------------------------------------- new files
-for f in ("lib3ds.cc", "lib3ds.h", "font5x8.h", "font6x13.h", "font6x13b.h"):
+for f in ("lib3ds.cc", "lib3ds.h", "font5x8.h", "font6x13.h", "font6x13b.h", "manual3ds.h", "manual_text.h"):
     shutil.copy(os.path.join(PORT, f), os.path.join(SRC, f))
     print("  + %-14s copied" % f)
 os.makedirs(os.path.join(SRC, "3ds"), exist_ok=True)

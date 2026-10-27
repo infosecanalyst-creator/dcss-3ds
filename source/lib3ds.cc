@@ -82,6 +82,8 @@ extern "C" { u32 __stacksize__ = 4 * 1024 * 1024; }
 #include "font5x8.h"
 #include "font6x13.h"
 #include "font6x13b.h"
+#include "manual3ds.h"
+#include "manual_text.h"
 
 // ===========================================================================
 // Text grid: crawl believes it draws into an 80x24 terminal.
@@ -1526,7 +1528,6 @@ static const keymap_3ds button_map[] =
     { KEY_R,      '5',      '>'      },   // rest / page down
     { KEY_ZL,     'i',      'i'      },   // inventory
     { KEY_ZR,     'z',      'z'      },   // cast
-    { KEY_START,  ESCAPE,   ESCAPE   },
 };
 
 // Circle pad -> 8-way numpad with auto-repeat.
@@ -1605,12 +1606,76 @@ static void auto_keyboard()
     }
 }
 
+// The instruction manual (Start): text on the top screen, a button per
+// section on the bottom; crawl waits underneath.
+static manual3ds::Manual g_manual;
+
+static void draw_manual()
+{
+    manual3ds::Canvas t = { top_cv.w, top_cv.h, top_cv.px };
+    manual3ds::Canvas b = { bot_cv.w, bot_cv.h, bot_cv.px };
+    g_manual.draw_top(t);
+    g_manual.draw_bottom(b);
+    cv_blit(top_cv, GFX_TOP, GFX_LEFT);
+    cv_blit(top_cv, GFX_TOP, GFX_RIGHT);
+    cv_blit(bot_cv, GFX_BOTTOM, GFX_LEFT);
+    gfxFlushBuffers();
+    gfxSwapBuffers();
+}
+
+static bool manual_input(u32 down, u32 rep)
+{
+    manual3ds::Input mi;
+    static const struct { u32 b; uint32_t k; bool rep; } map[] = {
+        { KEY_DUP, manual3ds::K_UP, true }, { KEY_DDOWN, manual3ds::K_DOWN, true },
+        { KEY_DLEFT, manual3ds::K_LEFT, true }, { KEY_DRIGHT, manual3ds::K_RIGHT, true },
+        { KEY_L, manual3ds::K_L, false }, { KEY_R, manual3ds::K_R, false },
+        { KEY_A, manual3ds::K_A, false }, { KEY_B, manual3ds::K_B, false },
+        { KEY_START, manual3ds::K_START, false },
+    };
+    for (auto &m : map)
+        if ((m.rep ? rep : down) & m.b)
+            mi.down |= m.k;
+    if (down & KEY_TOUCH)
+    {
+        touchPosition tp;
+        hidTouchRead(&tp);
+        mi.touch_down = true;
+        mi.tx = tp.px;
+        mi.ty = tp.py;
+    }
+    circlePosition cp;
+    hidCircleRead(&cp);
+    mi.cpad_y = cp.dy;
+    const bool was_dirty = g_manual.dirty();
+    if (!g_manual.update(mi))
+    {
+        top_dirty = bottom_dirty = grid_all_dirty = true;   // back to the game
+        return false;
+    }
+    if (mi.down || mi.touch_down || was_dirty || g_manual.dirty())
+        draw_manual();
+    return true;
+}
+
 static void poll_input()
 {
     auto_keyboard();
     hidScanInput();
     const u32 down = hidKeysDown();
     const u32 rep  = hidKeysDownRepeat();
+
+    if (g_manual.active())
+    {
+        manual_input(down, rep);
+        return;
+    }
+    if (down & KEY_START)
+    {
+        g_manual.open();
+        draw_manual();
+        return;
+    }
 
     if (down & KEY_SELECT)
     {
@@ -1868,6 +1933,7 @@ void console_startup()
     grid_all_dirty = true;
 
     load_atlas();
+    g_manual.load(kManualText, "sdmc:/3ds/crawl/manual.txt", "Crawl for 3DS: manual");
     build_keyboard();
     bottom_dirty = top_dirty = true;
 
@@ -2123,8 +2189,13 @@ int getch_ck()
             update_screen();
             return k;
         }
-        if (bottom_dirty)
-            draw_bottom();
+        if (!g_manual.active())
+        {
+            if (top_dirty)
+                draw_top();
+            if (bottom_dirty)
+                draw_bottom();
+        }
         gspWaitForVBlank();
     }
     const int k = keyq.front();
@@ -2144,7 +2215,7 @@ bool kbhit()
             return false;
         }
         poll_input();
-        if (bottom_dirty)
+        if (bottom_dirty && !g_manual.active())
             draw_bottom();
     }
     return !keyq.empty() || !tapq.empty();
