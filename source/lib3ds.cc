@@ -1711,6 +1711,12 @@ static bool headless = false;
 bool in_headless_mode() { return headless; }
 
 #ifndef __3DS_HARNESS__
+// SQLite's unix VFS references these; the 3DS has no users or ownership.
+extern "C" {
+uid_t geteuid(void) { return 0; }
+int fchown(int, uid_t, gid_t) { return 0; }
+}
+
 // newlib declares sigprocmask but the 3DS has no signals; crawl's webtiles
 // framework (compiled in for the tile data) brackets socket writes with it.
 #include <signal.h>
