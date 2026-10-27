@@ -222,6 +222,7 @@ public:
         static const uint8_t C_HEAD[3] = { 250, 220, 120 }, C_TEXT[3] = { 222, 222, 228 },
                              C_DIM[3] = { 140, 140, 155 }, C_SUB[3] = { 140, 200, 255 },
                              C_MARK[3] = { 250, 200, 90 };
+        m_view_h = cv.h;
         fill(cv, 0, 0, cv.w, cv.h, 14, 14, 22);
         fill(cv, 0, 0, cv.w, HEAD, 34, 34, 56);
         if (m_sections.empty())
@@ -313,7 +314,8 @@ private:
     int m_sec = 0, m_scroll = 0, m_layout_sec = -1, m_layout_w = 0, m_cpad_acc = 0;
     bool m_active = false, m_dirty = true;
 
-    int body_rows() const { return (240 - HEAD - FOOT - 6) / LINE_H; }
+    int m_view_h = 240;          // height of the last top canvas drawn
+    int body_rows() const { return (m_view_h - HEAD - FOOT - 6) / LINE_H; }
     int page() const { return body_rows() - 1; }
 
     void scroll(int d)
