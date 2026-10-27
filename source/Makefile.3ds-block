@@ -5,6 +5,8 @@
 # Requires DEVKITPRO (and DEVKITARM) in the environment, devkitARM, libctru.
 #
 ifdef TARGET_3DS
+# Sound effects (CC0 pack, played through ndsp by lib3ds.cc)
+EXTERNAL_FLAGS += -DUSE_SOUND -DSOUND_PLAY_3DS
 ifdef HARNESS_3DS
   # Desktop test harness: same frontend + game, host compiler, fake libctru
   # from $(HARNESS_3DS) (fake/3ds.h + libharness3ds.a). See tools/harness/.

@@ -79,6 +79,7 @@ extern "C" { u32 __stacksize__ = 4 * 1024 * 1024; }
 #include "rltiles/status-icon-sizes.h"
 #endif
 
+#include <map>
 #include "font5x8.h"
 #include "font6x13.h"
 #include "font6x13b.h"
@@ -1312,8 +1313,8 @@ static void draw_play_bottom()
     if (yesno_prompt_visible())
     {
         cv_shade(cv, 40, 176, 240, 56, 0, 0, 0, 170);
-        const button yes = { 56, 182, 96, 44, "Yes", 'y', BS_YES, 0 };
-        const button no  = { 168, 182, 96, 44, "No", 'n', BS_NO, 0 };
+        const button yes = { 56, 182, 96, 44, "Yes", 'Y', BS_YES, 0 };
+        const button no  = { 168, 182, 96, 44, "No", 'N', BS_NO, 0 };
         draw_button(cv, yes, false, false);
         draw_button(cv, no, false, false);
         buttons.push_back(yes);
@@ -1764,8 +1765,8 @@ static void poll_input()
             int k = crt_mode || keyboard_overlay ? m.text : m.play;
             if (!k)
                 continue;
-            if (yesno && m.button == KEY_A) k = 'y';
-            if (yesno && m.button == KEY_B) k = 'n';
+            if (yesno && m.button == KEY_A) k = 'Y';   // uppercase: accepted by every yes/no prompt
+            if (yesno && m.button == KEY_B) k = 'N';
             if (more && m.button == KEY_A) k = CK_ENTER;
             keyq.push_back(k);
         }
@@ -1912,6 +1913,109 @@ extern "C" int sigprocmask(int, const sigset_t *, sigset_t *old)
     return 0;
 }
 #endif
+
+// ===========================================================================
+// Sound: crawl's sound rules (dat/defaults/sounds3ds.txt, the CC0
+// crawl-sounds pack) call lib3ds_play_sound(path). Clips are raw 16-bit mono
+// PCM at 22050 Hz (converted from the pack's OGGs at build time), loaded on
+// first use and kept; four ndsp channels in rotation so effects can overlap.
+// ===========================================================================
+#ifdef SOUND_PLAY_3DS
+namespace {
+struct snd_clip { int16_t *pcm = nullptr; u32 samples = 0; };
+std::map<std::string, snd_clip> *snd_cache = nullptr;
+bool snd_ok = false;
+#ifndef __3DS_HARNESS__
+ndspWaveBuf snd_buf[4];
+#endif
+int snd_next = 0;
+}
+
+static void sound_init()
+{
+#ifndef __3DS_HARNESS__
+    snd_ok = R_SUCCEEDED(ndspInit());   // needs sdmc:/3ds/dspfirm.cdc
+    if (!snd_ok)
+        return;
+    ndspSetOutputMode(NDSP_OUTPUT_STEREO);
+    for (int ch = 0; ch < 4; ++ch)
+    {
+        ndspChnReset(ch);
+        ndspChnSetInterp(ch, NDSP_INTERP_LINEAR);
+        ndspChnSetRate(ch, 22050.0f);
+        ndspChnSetFormat(ch, NDSP_FORMAT_MONO_PCM16);
+        float mix[12] = { 0.9f, 0.9f };
+        ndspChnSetMix(ch, mix);
+    }
+    memset(snd_buf, 0, sizeof(snd_buf));
+#else
+    snd_ok = true;
+#endif
+    snd_cache = new std::map<std::string, snd_clip>;
+}
+
+static void sound_shutdown()
+{
+#ifndef __3DS_HARNESS__
+    if (snd_ok)
+    {
+        for (int ch = 0; ch < 4; ++ch)
+            ndspChnWaveBufClear(ch);
+        ndspExit();
+    }
+#endif
+    snd_ok = false;     // clips stay allocated: the process is ending
+}
+
+void lib3ds_play_sound(const char *file)
+{
+    if (!snd_ok || !snd_cache || !file || !*file)
+        return;
+    std::string path(file);
+    auto it = snd_cache->find(path);
+    if (it == snd_cache->end())
+    {
+        snd_clip clip;
+        if (FILE *f = fopen(path.c_str(), "rb"))
+        {
+            fseek(f, 0, SEEK_END);
+            const long bytes = ftell(f);
+            fseek(f, 0, SEEK_SET);
+            if (bytes > 0 && bytes < 4 * 1024 * 1024)
+            {
+#ifndef __3DS_HARNESS__
+                clip.pcm = (int16_t *)linearAlloc(bytes);
+#else
+                clip.pcm = (int16_t *)malloc(bytes);
+#endif
+                if (clip.pcm && fread(clip.pcm, 1, bytes, f) == (size_t)bytes)
+                    clip.samples = bytes / 2;
+            }
+            fclose(f);
+#ifndef __3DS_HARNESS__
+            if (clip.samples)
+                DSP_FlushDataCache(clip.pcm, clip.samples * 2);
+#endif
+        }
+        it = snd_cache->emplace(path, clip).first;   // misses are cached too
+    }
+    if (!it->second.samples)
+        return;
+#ifndef __3DS_HARNESS__
+    const int ch = snd_next;
+    snd_next = (snd_next + 1) % 4;
+    ndspChnWaveBufClear(ch);
+    ndspWaveBuf &b = snd_buf[ch];
+    memset(&b, 0, sizeof(b));
+    b.data_vaddr = it->second.pcm;
+    b.nsamples = it->second.samples;
+    ndspChnWaveBufAdd(ch, &b);
+#else
+    fprintf(stderr, "harness: sound %s (%u samples)\n", path.c_str(), (unsigned)it->second.samples);
+#endif
+}
+#endif // SOUND_PLAY_3DS
+
 void enter_headless_mode() { headless = true; }
 
 void lib3ds_early_init()
@@ -2002,6 +2106,9 @@ void console_startup()
     grid_all_dirty = true;
 
     load_atlas();
+#ifdef SOUND_PLAY_3DS
+    sound_init();
+#endif
     g_manual.load(kManualText, "sdmc:/3ds/crawl/manual.txt", "Crawl for 3DS: manual");
     build_keyboard();
     bottom_dirty = top_dirty = true;
@@ -2026,6 +2133,9 @@ void console_shutdown()
     vcells.clear();
     vcells.shrink_to_fit();
     have_view = false;
+#endif
+#ifdef SOUND_PLAY_3DS
+    sound_shutdown();
 #endif
     // no romfsExit(): files may still be open and are closed after this
     gfxExit();

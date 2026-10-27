@@ -1,0 +1,224 @@
+
+
+
+
+### EDIT THIS LINE TO THE PATH ON YOUR SYSTEM ###
+sound_file_path = romfs:/dat/sounds/
+
+
+
+
+## Housekeeping
+sounds_on = true
+# This is done to circumvent other sounds when stepping over items:
+#sound += You see here:null.pcm
+sound += You see here:--version
+# This does not work because this message crosses a newline :(
+#sound += Things that are here:null.pcm
+sound += Things that are here:--version
+sound += Unknown command.:thud.pcm
+
+## Player character
+
+sound += PICKUP:item-651515.pcm
+sound += WIELD_WEAPON:metalslide-585245.pcm
+sound += MEMORISE_SPELL:magic1-125164.pcm
+
+#sound += LOW HITPOINT WARNING:weeoo.flac
+sound += LOW HITPOINT WARNING:grunt-471142.pcm
+
+sound += You enter the .*water:splash-807961.pcm
+
+sound += You finish putting on :clothing-408566.pcm
+sound += You finish removing :clothing-408566.pcm
+#sound += You finish memorising:magic1-125164.pcm
+
+sound += hits you:wince-471142.pcm
+
+sound += HP restored.:sigh-265249.pcm
+sound += Magic restored.:magic2b-125164.pcm
+
+sound += You fall .+!:fall.pcm
+
+sound += You are no longer poisoned:sigh-265249.pcm
+sound += You are .*poisoned:hurt-413186.pcm
+sound += You are covered in .*fire:burning-729395.pcm
+sound += The .*fire burns you:burning-729395.pcm
+
+sound += You have reached level [0-9]+!:levelup-682633.pcm
+
+sound += You die.:falldie.pcm
+
+#sound += Done exploring.:tada-850021.pcm
+sound += Done exploring.:bell1-331675.pcm
+
+
+
+## Spells
+sound += [Pp]archment:paper5.pcm
+sound += You pick up .+ and begin .+.:paper5.pcm
+sound += You miscast:magic2-826131.pcm
+sound += magic dart:magic-703249.pcm
+
+
+
+## Items
+
+# Scrolls
+sound += [Ss]croll:paper5.pcm
+
+# Potions
+sound += drink:gulp-788239.pcm
+#sound += [Pp]otion:waterdrop-554161.pcm
+sound += [Pp]otion:cork-506142.pcm
+
+# Gold
+# :coins2-50691.pcm
+sound += You.+have [0-9][0-9][0-9][0-9]+ gold:coins-336585.pcm
+sound += You.+have [0-9][0-9][0-9] gold:coins-336571.pcm
+sound += You.+have [0-9]+ gold:coins-776101.pcm
+sound += [Gg]old:coins-847350.pcm
+
+# Rings
+sound += \sring mail:null.pcm
+sound += \sring:ring-425966.pcm
+
+# Talismans
+sound += talisman:jinglestone-669449-731046.pcm
+
+# Weapons - swords
+#sound += dagger:metalslide-585245.pcm
+#sound += sword:metalslide-585245.pcm
+#sound += rapier:metalslide-585245.pcm
+#sound += falchion:metalslide-585245.pcm
+
+# Weapons - ranged
+sound += You shoot an arrow.:arrow-527435.pcm
+sound += throw.*boomerang:boomerang-446450.pcm
+
+# Weapons - magic
+#sound += staff:magic-826131.pcm
+#sound += wand:magic-826131.pcm
+
+
+
+## Enemies
+#sound += The .* hits you:
+#sound += You kill the:
+#sound += The .* dies!:
+
+# Snakes
+#sound += The .+ hisses:snakehiss-423454.pcm
+sound += The .+ hisses:hissing-826834.pcm
+sound += The.+python bites:slither-46631.pcm
+sound += The.+python .+misses:slither-46631.pcm
+sound += The.+adder bites:slither-46631.pcm
+sound += The.+adder .+misses:slither-46631.pcm
+sound += The.+moccasin bites:slither-46631.pcm
+sound += The.+moccasin .+misses:slither-46631.pcm
+sound += The.+eel .+misses:slither-46631.pcm
+sound += You kill the.+python:underboot-739191.pcm
+#sound += You kill the.+python:smashbug-269485.pcm
+sound += You kill the.+adder:smashbug-269485.pcm
+sound += You kill the.+moccasin:smashbug-269485.pcm
+sound += You kill the.+eel:smashbug-269485.pcm
+sound += The.+python dies!:smashbug-269485.pcm
+sound += The.+adder dies!:smashbug-269485.pcm
+sound += The.+moccasin dies!:smashbug-269485.pcm
+sound += The.+eel dies!:smashbug-269485.pcm
+
+# Worms
+sound += The .*worm:slimy-751341.pcm
+sound += The .*slug:slimy-751341.pcm
+sound += The .*plasm:slimy-751341.pcm
+sound += The .*jelly:slimy-751341.pcm
+#sound += You kill the.+worm:squishsmash-575332.pcm
+sound += You kill the.+worm:squishing-802616.pcm
+sound += You kill the.+slug:squishing-802616.pcm
+sound += You kill the.+plasm:squishing-802616.pcm
+sound += You kill the.+jelly:squishing-802616.pcm
+sound += The.+worm dies!:squishing-802616.pcm
+sound += The.+slug dies!:squishing-802616.pcm
+sound += The.+plasm dies!:squishing-802616.pcm
+sound += The.+jelly dies!:squishing-802616.pcm
+
+# Insects
+#sound += You kill the .*beetle:squishing-802616.pcm
+sound += You kill the .*beetle:crunch-655708.pcm
+sound += You kill the .*roach:crunch-655708.pcm
+sound += You kill the .*scorpion:crunch-655708.pcm
+sound += The .*beetle dies!:crunch-655708.pcm
+sound += The .*roach dies!:crunch-655708.pcm
+sound += The .*scorpion dies!:crunch-655708.pcm
+
+# Rodents
+sound += You encounter a .*rat:ratting-143250.pcm
+sound += You encounter a .*quokka:ratting-143250.pcm
+sound += You encounter a .*bat:batting-546823.pcm
+#sound += The .*bat hits you:batting-546823.pcm
+sound += The .*bat:batting-546823.pcm
+sound += You kill the.+rat:rat-288941.pcm
+sound += You kill the.+quokka:rat-288941.pcm
+sound += You kill the.+bat:rat-288941.pcm
+sound += The.+rat dies!:rat-288941.pcm
+sound += The.+quokka dies!:rat-288941.pcm
+sound += The.+bat dies!:rat-288941.pcm
+sound += Your.+rat dies!:rat-288941.pcm
+sound += Your.+quokka dies!:rat-288941.pcm
+sound += Your.+bat dies!:rat-288941.pcm
+
+# Lizards
+sound += You kill the .*lizard:crunch-655708.pcm
+sound += You kill the .*iguana:crunch-655708.pcm
+sound += The .*lizard.* dies!:crunch-655708.pcm
+sound += The .*iguana.* dies!:crunch-655708.pcm
+
+# Dogs
+#sound +=  barks!:dogbark-503021.pcm
+sound +=  barks!:dogbark-770029.pcm
+sound += The .*hound hits you:doggrowl-625501.pcm
+sound += The .*gnoll hits you:doggrowl-625501.pcm
+sound += The .*jackal hits you:doggrowl-625501.pcm
+sound += The .*wolf hits you:doggrowl-625501.pcm
+sound += The .*raiju hits you:doggrowl-625501.pcm
+sound += You kill your .*inugami:dogyelp-160478.pcm
+sound += You kill the .*hound:dogyelp-160478.pcm
+sound += You kill the .*gnoll:dogyelp-160478.pcm
+sound += You kill the .*jackal:dogyelp-160478.pcm
+sound += You kill the .*wolf:dogyelp-160478.pcm
+sound += You kill the .*raiju:dogyelp-160478.pcm
+sound += The .*hound.* dies!:dogyelp-160478.pcm
+sound += The .*gnoll.* dies!:dogyelp-160478.pcm
+sound += The .*jackal.* dies!:dogyelp-160478.pcm
+sound += The .*wolf.* dies!:dogyelp-160478.pcm
+sound += The .*raiju.* dies!:dogyelp-160478.pcm
+
+# Smaller monsters
+sound += The .*kobold.* shouts:shout2-718967.pcm
+sound += The .*goblin.* shouts:shout2-718967.pcm
+sound += You kill the .*kobold.*:smallmonsterpain-567998.pcm
+sound += You kill the .*goblin.*:smallmonsterpain-567998.pcm
+sound += .*kobold.* dies!:smallmonsterpain-567998.pcm
+sound += .*goblin.* dies!:smallmonsterpain-567998.pcm
+
+sound += butterfl:butterfly-198818.pcm
+
+# Branches
+sound += You hear the sound of rushing water.:water-730154.pcm
+sound += You hear the hiss of flowing sand.:sand-778568.pcm
+sound += You hear the roar of battle.:battlecrowd-764267.pcm
+
+# Other
+sound += \sfire:flame-507724.pcm
+sound += \sflame:flame-507724.pcm
+sound += \sflaming:flame-507724.pcm
+sound += \sfreeze:ice-380493.pcm
+sound += You are frozen:ice-380493.pcm
+sound += The .+ bites:stab1-851647.pcm
+sound += shouts!:shout1-718967.pcm
+sound += You kill :monsterpain-567998.pcm
+sound += You destroy :monsterpain-567998.pcm
+#sound += The .+ dies!:monsterpain-567998.pcm
+#sound += The .+ is destroyed!:monsterpain-567998.pcm
+sound += dies!:monsterpain-567998.pcm
+sound += You feel a bit more experienced.:sigh-265249.pcm

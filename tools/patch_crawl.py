@@ -334,6 +334,36 @@ else:
     else:
         print("  = Makefile       3dsx rules already present")
 
+
+# -------------------------------------------------------------- sound (3DS)
+# A third sound backend next to WinMM / external command / SDL_mixer:
+# lib3ds_play_sound() plays raw PCM through ndsp. The CC0 crawl-sounds pack's
+# rules ship as dat/defaults/sounds3ds.txt, loaded with the other defaults.
+rw("sound.h",
+   "#if defined(WINMM_PLAY_SOUNDS)\n #define SOUND_BACKEND",
+   "#if defined(SOUND_PLAY_3DS)\n #define SOUND_BACKEND \"Sound support (3DS)\"\n"
+   "void lib3ds_play_sound(const char *file);\n#elif defined(WINMM_PLAY_SOUNDS)\n #define SOUND_BACKEND",
+   "Sound support (3DS)")
+rw("sound.cc",
+   "    if (Options.sounds_on)\n    {\n#if defined(WINMM_PLAY_SOUNDS)\n",
+   "    if (Options.sounds_on)\n    {\n#if defined(SOUND_PLAY_3DS)\n        if (file && *file)\n            lib3ds_play_sound(file); // 3DS ndsp\n#elif defined(WINMM_PLAY_SOUNDS)\n",
+   "lib3ds_play_sound(file); // 3DS ndsp")
+rw("initfile.cc",
+   "#if !(defined(USE_SOUND) && (defined(WINMM_PLAY_SOUNDS) || defined(SOUND_PLAY_COMMAND) || defined(USE_SDL)))",
+   "#if !(defined(USE_SOUND) && (defined(WINMM_PLAY_SOUNDS) || defined(SOUND_PLAY_COMMAND) || defined(USE_SDL) || defined(SOUND_PLAY_3DS)))",
+   "|| defined(SOUND_PLAY_3DS)))")
+rw("initfile.cc",
+   "    \"defaults/consumable_shortcuts.txt\",\n};\n",
+   "    \"defaults/consumable_shortcuts.txt\",\n#ifdef SOUND_PLAY_3DS\n    \"defaults/sounds3ds.txt\",   // 3DS: CC0 crawl-sounds pack\n#endif\n};\n",
+   "defaults/sounds3ds.txt")
+shutil.copy(os.path.join(PORT, "3ds", "sounds3ds.txt"), os.path.join(SRC, "dat", "defaults", "sounds3ds.txt"))
+print("  + dat/defaults/sounds3ds.txt copied")
+os.makedirs(os.path.join(SRC, "3ds", "sounds"), exist_ok=True)
+_snd = os.path.join(PORT, "3ds", "sounds")
+for f in os.listdir(_snd):
+    shutil.copy(os.path.join(_snd, f), os.path.join(SRC, "3ds", "sounds", f))
+print("  + 3ds/sounds/ (%d files) copied" % len(os.listdir(_snd)))
+
 # -------------------------------------------------------------- new files
 for f in ("lib3ds.cc", "lib3ds.h", "font5x8.h", "font6x13.h", "font6x13b.h", "manual3ds.h", "manual_text.h"):
     shutil.copy(os.path.join(PORT, f), os.path.join(SRC, f))
