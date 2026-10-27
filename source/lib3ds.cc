@@ -41,6 +41,11 @@
 #include <deque>
 #include <sqlite3.h>
 
+// libctru's default main-thread stack is only 32 KB; crawl builds a whole
+// `player` (and other big objects) on the stack -- new game / tutorial
+// overflowed it (data abort in player::player()). Give it 4 MB.
+extern "C" { u32 __stacksize__ = 4 * 1024 * 1024; }
+
 #include "cio.h"
 #include "defines.h"
 #include "libutil.h"

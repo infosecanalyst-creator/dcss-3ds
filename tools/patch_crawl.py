@@ -268,6 +268,16 @@ rw("database.cc",
    "        end(1, false, \"Failed to open DB: %s\\n%s\",\n            _db_cache_path(_db_name, lang()).c_str(), dbm_last_error.c_str());",
    "dbm_last_error.c_str()")
 
+# --- PROGRESS_3DS: show first-run DB / map-cache building on the 3DS console ---
+for _f in ("database.cc", "maps.cc"):
+    _p = os.path.join(SRC, _f)
+    _t = open(_p, encoding="utf-8").read()
+    _o = "#if defined(DEBUG_DIAGNOSTICS) && !(defined(TARGET_COMPILER_VC) && defined(USE_TILE))\n    printf(\"Regenerating"
+    _n = "#if (defined(DEBUG_DIAGNOSTICS) && !(defined(TARGET_COMPILER_VC) && defined(USE_TILE))) || defined(TARGET_OS_3DS)\n    printf(\"Regenerating"
+    if _o in _t:
+        open(_p, "w", encoding="utf-8").write(_t.replace(_o, _n))
+        print("  + %-14s first-run progress on the console" % _f)
+
 path = os.path.join(SRC, "Makefile")
 t = open(path, encoding="utf-8").read()
 if "crawl.3dsx:" not in t:
