@@ -28,6 +28,9 @@ romfs: dat/dlua/tags.lua
 	@cp -r ../settings/* $(ROMFS_DIR)/settings/ 2>/dev/null || true
 	@cp ../docs/*.txt $(ROMFS_DIR)/docs/ 2>/dev/null || true
 	@find $(ROMFS_DIR) -name '*.png' -delete
+	@# data fingerprint: crawl rebuilds its caches only when this changes
+	@find $(ROMFS_DIR)/dat/clua $(ROMFS_DIR)/dat/dlua $(ROMFS_DIR)/dat/des $(ROMFS_DIR)/dat/descript \
+	      $(ROMFS_DIR)/dat/database -type f | LC_ALL=C sort | xargs cat | cksum | cut -d' ' -f1 > $(ROMFS_DIR)/stamp.txt
 	@mkdir -p $(ROMFS_DIR)/dat/sounds && cp 3ds/sounds/*.pcm $(ROMFS_DIR)/dat/sounds/ 2>/dev/null || true
 	@if [ -f 3ds/tiles16.bin ]; then cp 3ds/tiles16.bin $(ROMFS_DIR)/; else echo '    (no 3ds/tiles16.bin: the map will use glyphs)'; fi
 	@du -sh $(ROMFS_DIR)

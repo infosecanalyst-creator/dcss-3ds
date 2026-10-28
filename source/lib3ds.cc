@@ -1976,7 +1976,7 @@ static void sound_shutdown()
 void lib3ds_play_sound(const char *file)
 {
     static int logged = 0;               // first plays go to sound.log
-    if (logged < 40)
+    if (logged < 40 && !strstr(file ? file : "", "x-step"))
     {
         if (FILE *lf = fopen("sdmc:/3ds/crawl/sound.log", "a"))
         {
@@ -2047,6 +2047,18 @@ time_t lib3ds_romfs_mtime()
     static time_t t = 0;
     if (t)
         return t;
+    // Preferred: a fingerprint of the game data, written into romfs at build
+    // time (Makefile.3ds-rules), so a new build with the same data doesn't
+    // rebuild the databases and level cache.
+    if (FILE *f = fopen("romfs:/stamp.txt", "r"))
+    {
+        unsigned long v = 0;
+        if (fscanf(f, "%lu", &v) == 1 && v)
+            t = (time_t)(1000000000UL + v % 1000000000UL);
+        fclose(f);
+        if (t)
+            return t;
+    }
     struct stat st;
     const char *self = (__system_argc > 0 && __system_argv && __system_argv[0])
                        ? __system_argv[0] : nullptr;
@@ -2523,6 +2535,23 @@ void puttext(int x1, int y1, const crawl_view_buffer &vbuf)
 #endif
         have_view = true;
         bottom_dirty = true;
+#ifdef SOUND_PLAY_3DS
+        // soft footsteps: crawl prints no message for an ordinary step, so
+        // watch the player's square (one step at a time, same level)
+        static coord_def last_pos;
+        static int last_depth = -1, last_branch = -1, step_alt = 0;
+        const coord_def p = you.pos();
+        if (map_bounds(p) && p != last_pos && last_depth == you.depth
+            && last_branch == (int)you.where_are_you && (p - last_pos).abs() <= 2)
+        {
+            lib3ds_play_sound(step_alt ? "romfs:/dat/sounds/x-step2.pcm"
+                                       : "romfs:/dat/sounds/x-step1.pcm");
+            step_alt ^= 1;
+        }
+        last_pos = p;
+        last_depth = you.depth;
+        last_branch = (int)you.where_are_you;
+#endif
     }
     for (int y = 0; y < size.y; ++y)
     {

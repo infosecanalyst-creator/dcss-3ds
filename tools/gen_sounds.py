@@ -1,0 +1,75 @@
+#!/usr/bin/env python3
+"""Build source/3ds/sounds/*.pcm (16-bit mono 22050 Hz raw PCM) for the 3DS.
+
+1. Convert the CC0 crawl-sounds pack (github.com/nerdcorenet/crawl-sounds)
+   OGGs, if a checkout path is given.
+2. Synthesize the extra effects the pack lacks (footsteps, miss swish, door
+   creak, stairs) -- generated here, CC0.
+3. Loudness: the pack is recorded quietly (peaks -4..-19 dB, means down to
+   -38 dB), so every clip is lifted toward a -18 dB mean (at most +15 dB) with a -1 dB
+   ceiling. Footsteps are kept deliberately soft.
+
+Usage: gen_sounds.py [path/to/crawl-sounds]     (needs ffmpeg)
+"""
+import os, re, subprocess, sys
+
+OUT = os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "source", "3ds", "sounds")
+os.makedirs(OUT, exist_ok=True)
+RAW = ["-f", "s16le", "-ar", "22050", "-ac", "1"]
+
+def ff(args):
+    subprocess.run(["ffmpeg", "-v", "error", "-y"] + args, check=True)
+
+def synth(name, src, filt, dur):
+    ff(["-f", "lavfi", "-i", src, "-t", str(dur), "-af", filt] + RAW + [os.path.join(OUT, name + ".pcm")])
+
+def levels(path):
+    r = subprocess.run(["ffmpeg", "-hide_banner"] + RAW + ["-i", path, "-af", "volumedetect", "-f", "null", "-"],
+                       capture_output=True, text=True).stderr
+    mean = float(re.search(r"mean_volume: (-?[\d.]+)", r).group(1))
+    peak = float(re.search(r"max_volume: (-?[\d.]+)", r).group(1))
+    return mean, peak
+
+def lift(path, target_mean=-18.0, ceiling=-1.0, max_gain=15.0):
+    mean, peak = levels(path)
+    gain = min(target_mean - mean, max_gain)
+    if gain <= 0.5:
+        return 0.0
+    tmp = path + ".tmp"
+    # gain, then a limiter so the loud transients stay under the ceiling
+    lim = 10 ** (ceiling / 20)
+    ff(RAW + ["-i", path, "-af", "volume=%.1fdB,alimiter=limit=%.3f:attack=1:release=30:level=disabled" % (gain, lim)]
+       + RAW + [tmp])
+    os.replace(tmp, path)
+    return gain
+
+if len(sys.argv) > 1:
+    src = os.path.join(sys.argv[1], "sounds")
+    for f in sorted(os.listdir(src)):
+        if f.endswith(".ogg"):
+            ff(["-i", os.path.join(src, f)] + RAW + [os.path.join(OUT, f[:-4] + ".pcm")])
+
+# --- synthesized extras (CC0) ---
+# soft footsteps: a puff of brown noise, low-passed, fast decay
+synth("x-step1", "anoisesrc=color=brown:seed=11:amplitude=0.9",
+      "lowpass=f=600,highpass=f=60,afade=t=in:d=0.004,afade=t=out:st=0.012:d=0.06,volume=-2dB", 0.08)
+synth("x-step2", "anoisesrc=color=brown:seed=29:amplitude=0.9",
+      "lowpass=f=520,highpass=f=60,afade=t=in:d=0.004,afade=t=out:st=0.010:d=0.065,volume=-2dB", 0.08)
+# stairs: four steps, a little reverb
+synth("x-stairs", "anoisesrc=color=brown:seed=7:amplitude=0.9",
+      "lowpass=f=700,highpass=f=70,volume='if(lt(mod(t,0.16),0.07),1-mod(t,0.16)/0.07,0)':eval=frame,"
+      "aecho=0.8:0.5:40:0.3", 0.64)
+# miss: a swish of white noise swept through a band-pass
+synth("x-swish", "anoisesrc=color=white:seed=3:amplitude=0.8",
+      "bandpass=f=2200:width_type=o:w=1.5,afade=t=in:d=0.06,afade=t=out:st=0.08:d=0.12", 0.2)
+# door open: wooden creak (wobbling low tone) then a soft knock
+synth("x-door", "aevalsrc='0.5*sin(2*PI*(170+90*t+25*sin(2*PI*9*t))*t)*(1-t/0.45)+0.3*random(0)*exp(-60*t)':s=22050",
+      "lowpass=f=1800,highpass=f=90,volume=-4dB", 0.45)
+
+print("lifting quiet clips:")
+for f in sorted(os.listdir(OUT)):
+    if not f.endswith(".pcm") or f.startswith("x-step") or f == "null.pcm":
+        continue
+    g = lift(os.path.join(OUT, f))
+    if g:
+        print("  %-38s +%.1f dB" % (f, g))

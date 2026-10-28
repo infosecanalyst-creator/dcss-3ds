@@ -1,3 +1,31 @@
+# Sound rules for the 3DS build of Crawl.
+#
+# Pack: crawl-sounds by nerdcorenet (CC0), github.com/nerdcorenet/crawl-sounds
+# Clips are converted to raw PCM and loudness-lifted by tools/gen_sounds.py.
+# The "x-" clips are synthesized for this port (CC0).
+#
+# When several rules match a message, the LAST one wins, so these general
+# rules come first and the pack's specific ones (per monster, etc.) override.
+
+sound_file_path = romfs:/dat/sounds/
+
+## 3DS port: general combat
+sound += You (hit|slash|stab|pierce|puncture|skewer|bash|bludgeon|smack|whack|thump|pound|crush|chop|slice|cut|claw|bite|kick|punch|strike|gouge|shred|impale|lacerate|batter|pummel|squash|smash) .+:stab1-851647.pcm
+sound += You (closely )?miss .+:x-swish.pcm
+sound += (closely )?misses you:x-swish.pcm
+sound += (hits|bites|claws|strikes|kicks|punches|stings|smites|slashes|crushes) you:wince-471142.pcm
+sound += You (kill|destroy|slay) .+:monsterpain-567998.pcm
+sound += dies!|is destroyed!|is killed:smallmonsterpain-567998.pcm
+sound += You block .+:thud.pcm
+
+## 3DS port: moving around
+sound += You open the :x-door.pcm
+sound += You close the :thud.pcm
+sound += You (climb|fly) (up|down)wards:x-stairs.pcm
+sound += You slide downwards:fall.pcm
+sound += through the gate:x-stairs.pcm
+
+## ---- crawl-sounds pack (CC0) ----
 
 
 
