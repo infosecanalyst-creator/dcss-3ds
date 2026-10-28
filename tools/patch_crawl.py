@@ -335,6 +335,21 @@ else:
         print("  = Makefile       3dsx rules already present")
 
 
+
+# -------------------------------------------------------- romfs timestamps
+# libctru's romfs reports every file's mtime as the moment romfsInit() ran,
+# so crawl saw all of dat/ as "changed" on every launch and rebuilt its
+# databases and level cache each time (minutes). Give romfs files one stable
+# time instead: the installed .3dsx's own mtime (changes only on an update).
+rw("files.cc",
+   "time_t file_modtime(const string &file)\n{\n    struct stat filestat;\n",
+   "#if defined(__3DS__) && !defined(__3DS_HARNESS__)\ntime_t lib3ds_romfs_mtime();\n#endif\n"
+   "time_t file_modtime(const string &file)\n{\n"
+   "#if defined(__3DS__) && !defined(__3DS_HARNESS__)\n"
+   "    if (file.compare(0, 6, \"romfs:\") == 0)\n        return lib3ds_romfs_mtime(); // romfs mtime = launch time otherwise\n#endif\n"
+   "    struct stat filestat;\n",
+   "lib3ds_romfs_mtime(); // romfs mtime")
+
 # -------------------------------------------------------------- sound (3DS)
 # A third sound backend next to WinMM / external command / SDL_mixer:
 # lib3ds_play_sound() plays raw PCM through ndsp. The CC0 crawl-sounds pack's

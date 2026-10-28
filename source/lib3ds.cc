@@ -1934,7 +1934,13 @@ int snd_next = 0;
 static void sound_init()
 {
 #ifndef __3DS_HARNESS__
-    snd_ok = R_SUCCEEDED(ndspInit());   // needs sdmc:/3ds/dspfirm.cdc
+    const Result rc = ndspInit();       // needs sdmc:/3ds/dspfirm.cdc
+    snd_ok = R_SUCCEEDED(rc);
+    if (FILE *lf = fopen("sdmc:/3ds/crawl/sound.log", "w"))
+    {
+        fprintf(lf, "ndspInit: %08lX (%s)\n", (unsigned long)rc, snd_ok ? "ok" : "FAILED");
+        fclose(lf);
+    }
     if (!snd_ok)
         return;
     ndspSetOutputMode(NDSP_OUTPUT_STEREO);
@@ -1969,6 +1975,16 @@ static void sound_shutdown()
 
 void lib3ds_play_sound(const char *file)
 {
+    static int logged = 0;               // first plays go to sound.log
+    if (logged < 40)
+    {
+        if (FILE *lf = fopen("sdmc:/3ds/crawl/sound.log", "a"))
+        {
+            fprintf(lf, "play %s%s\n", file ? file : "(null)", snd_ok ? "" : " (sound off)");
+            fclose(lf);
+        }
+        ++logged;
+    }
     if (!snd_ok || !snd_cache || !file || !*file)
         return;
     std::string path(file);
@@ -1997,6 +2013,11 @@ void lib3ds_play_sound(const char *file)
                 DSP_FlushDataCache(clip.pcm, clip.samples * 2);
 #endif
         }
+        if (FILE *lf = fopen("sdmc:/3ds/crawl/sound.log", "a"))
+        {
+            fprintf(lf, "load %s: %u samples\n", path.c_str(), (unsigned)clip.samples);
+            fclose(lf);
+        }
         it = snd_cache->emplace(path, clip).first;   // misses are cached too
     }
     if (!it->second.samples)
@@ -2015,6 +2036,29 @@ void lib3ds_play_sound(const char *file)
 #endif
 }
 #endif // SOUND_PLAY_3DS
+
+
+#ifndef __3DS_HARNESS__
+// Stable timestamp for every romfs file (see files.cc patch): the mtime of
+// the .3dsx we were launched from, so caches rebuild once per install.
+extern "C" { extern int __system_argc; extern char **__system_argv; }
+time_t lib3ds_romfs_mtime()
+{
+    static time_t t = 0;
+    if (t)
+        return t;
+    struct stat st;
+    const char *self = (__system_argc > 0 && __system_argv && __system_argv[0])
+                       ? __system_argv[0] : nullptr;
+    if (self && !stat(self, &st) && st.st_mtime > 0)
+        t = st.st_mtime;
+    else if (!stat("sdmc:/3ds/crawl/crawl.3dsx", &st) && st.st_mtime > 0)
+        t = st.st_mtime;
+    else
+        t = 1700000000;   // no executable to look at: one fixed value
+    return t;
+}
+#endif
 
 void enter_headless_mode() { headless = true; }
 
@@ -2072,6 +2116,40 @@ void lib3ds_fatal_wait(const char *msg)
 // libconsole.h implementation
 // ===========================================================================
 
+
+#ifndef __3DS_HARNESS__
+// Before the HOME Menu takes over it captures our framebuffers. Hand it the
+// plainest setup (2D, double-buffered, both BGR8, a fresh frame presented)
+// and restore stereo / single buffering when we come back.
+static aptHookCookie home_cookie;
+static void home_hook(APT_HookType type, void *)
+{
+    if (!inited)
+        return;
+    if (type == APTHOOK_ONSUSPEND || type == APTHOOK_ONEXIT)
+    {
+        gfxSet3D(false);
+        gfxSetDoubleBuffering(GFX_TOP, true);
+        gfxSetDoubleBuffering(GFX_BOTTOM, true);
+        for (int i = 0; i < 2; ++i)
+        {
+            cv_blit(top_cv, GFX_TOP, GFX_LEFT);
+            cv_blit(bot_cv, GFX_BOTTOM, GFX_LEFT);
+            gfxFlushBuffers();
+            gfxSwapBuffers();
+            gspWaitForVBlank();
+        }
+    }
+    else if (type == APTHOOK_ONRESTORE)
+    {
+        gfxSetDoubleBuffering(GFX_TOP, false);
+        gfxSetDoubleBuffering(GFX_BOTTOM, false);
+        gfxSet3D(true);
+        top_dirty = bottom_dirty = grid_all_dirty = true;
+    }
+}
+#endif
+
 void console_startup()
 {
     if (inited)
@@ -2106,6 +2184,9 @@ void console_startup()
     grid_all_dirty = true;
 
     load_atlas();
+#ifndef __3DS_HARNESS__
+    aptHook(&home_cookie, home_hook, nullptr);
+#endif
 #ifdef SOUND_PLAY_3DS
     sound_init();
 #endif
@@ -2133,6 +2214,9 @@ void console_shutdown()
     vcells.clear();
     vcells.shrink_to_fit();
     have_view = false;
+#endif
+#ifndef __3DS_HARNESS__
+    aptUnhook(&home_cookie);
 #endif
 #ifdef SOUND_PLAY_3DS
     sound_shutdown();
