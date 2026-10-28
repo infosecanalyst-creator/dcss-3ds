@@ -2070,6 +2070,25 @@ time_t lib3ds_romfs_mtime()
         t = 1700000000;   // no executable to look at: one fixed value
     return t;
 }
+#else
+// Desktop harness: same data fingerprint, so caches it builds are valid on
+// the 3DS (tools: build caches here, copy saves/db + saves/des to the card).
+time_t lib3ds_romfs_mtime()
+{
+    static time_t t = 0;
+    if (!t)
+    {
+        unsigned long v = 0;
+        if (FILE *f = fopen("romfs:/stamp.txt", "r"))
+        {
+            if (fscanf(f, "%lu", &v) != 1)
+                v = 0;
+            fclose(f);
+        }
+        t = v ? (time_t)(1000000000UL + v % 1000000000UL) : 1700000000;
+    }
+    return t;
+}
 #endif
 
 void enter_headless_mode() { headless = true; }
