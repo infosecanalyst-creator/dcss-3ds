@@ -124,6 +124,7 @@ u8 *gfxGetFramebuffer(gfxScreen_t screen, gfx3dSide_t side, u16 *width, u16 *hei
 }
 void gfxFlushBuffers(void) {}
 void gfxSwapBuffers(void) {}
+void gfxScreenSwapBuffers(gfxScreen_t, bool) {}
 void gfxSet3D(bool) {}
 void gfxSetScreenFormat(gfxScreen_t, GSPGPU_FramebufferFormat) {}
 void gfxSetDoubleBuffering(gfxScreen_t, bool) {}

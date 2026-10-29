@@ -36,6 +36,7 @@ void gfxExit(void);
 u8 *gfxGetFramebuffer(gfxScreen_t screen, gfx3dSide_t side, u16 *width, u16 *height);
 void gfxFlushBuffers(void);
 void gfxSwapBuffers(void);
+void gfxScreenSwapBuffers(gfxScreen_t scr, bool hasStereo);
 void gfxSet3D(bool enable);
 void gfxSetScreenFormat(gfxScreen_t screen, GSPGPU_FramebufferFormat fmt);
 void gfxSetDoubleBuffering(gfxScreen_t screen, bool enable);

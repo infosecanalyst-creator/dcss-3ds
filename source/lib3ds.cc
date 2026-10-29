@@ -61,6 +61,10 @@ extern "C" { u32 __stacksize__ = 4 * 1024 * 1024; }
 #include "terrain.h"
 #include "travel.h"
 #include "unicode.h"
+#include "format.h"
+#include <climits>
+// message.cc (patched): newest messages with colours and turn numbers
+vector<pair<formatted_string, int>> lib3ds_recent_messages(int mcount);
 #include "version.h"
 #include "viewgeom.h"
 #include "view.h"
@@ -80,6 +84,7 @@ extern "C" { u32 __stacksize__ = 4 * 1024 * 1024; }
 #endif
 
 #include <map>
+#include <math.h>
 #include "font5x8.h"
 #include "font6x13.h"
 #include "font6x13b.h"
@@ -218,6 +223,38 @@ static void cv_frame(Canvas &c, int x, int y, int w, int h, uint8_t r, uint8_t g
 }
 
 // Rotate a canvas into a portrait BGR8 framebuffer (fb[(x*240 + 239-y)*3]).
+// Brightness: a gamma curve applied as the image goes to the screen, so
+// dark tiles and text lift without washing out the whites. 0 = as drawn.
+static int g_bright = 2;
+static uint8_t g_lut[256];
+static const float kBrightGamma[5] = { 1.0f, 0.85f, 0.72f, 0.62f, 0.54f };
+static void build_lut()
+{
+    for (int i = 0; i < 256; ++i)
+        g_lut[i] = (uint8_t)(255.0f * powf(i / 255.0f, kBrightGamma[g_bright]) + 0.5f);
+}
+static void load_brightness()
+{
+    if (FILE *f = fopen("sdmc:/3ds/crawl/brightness.txt", "r"))
+    {
+        int v;
+        if (fscanf(f, "%d", &v) == 1 && v >= 0 && v <= 4)
+            g_bright = v;
+        fclose(f);
+    }
+    build_lut();
+}
+static void cycle_brightness()
+{
+    g_bright = (g_bright + 1) % 5;
+    build_lut();
+    if (FILE *f = fopen("sdmc:/3ds/crawl/brightness.txt", "w"))
+    {
+        fprintf(f, "%d\n", g_bright);
+        fclose(f);
+    }
+}
+
 static void cv_blit(const Canvas &c, gfxScreen_t screen, gfx3dSide_t side)
 {
     u16 fbw, fbh;
@@ -230,7 +267,7 @@ static void cv_blit(const Canvas &c, gfxScreen_t screen, gfx3dSide_t side)
         {
             const uint8_t *s = c.px + (y * c.w + x) * 3;
             u8 *d = col + (H - 1 - y) * 3;
-            d[0] = s[2]; d[1] = s[1]; d[2] = s[0];
+            d[0] = g_lut[s[2]]; d[1] = g_lut[s[1]]; d[2] = g_lut[s[0]];
         }
     }
 }
@@ -1192,70 +1229,130 @@ static void draw_play_top()
         cv_frame(cv, ox + vcentre.x - MAP_CC, oy + vcentre.y - MAP_CR, MAP_COLS, MAP_ROWS, 120, 120, 160);
     }
 
-    // --- messages: crawl's message pane re-wrapped into the 6x13 font
-    // (66 columns instead of crawl's 80), newest at the bottom. Dark colours
-    // are lifted so every message reads clearly on the dark panel.
+    // --- messages, in the 6x13 font (66 columns), newest at the bottom.
+    // Normally they come whole from crawl's message log and are word-wrapped
+    // once here (re-wrapping crawl's 80-column lines left ragged fragments).
+    // While the player is typing into the message line, the pane itself is
+    // shown so the typed text and cursor appear. Dark colours are lifted so
+    // every message reads clearly on the dark panel.
     cv_fill(cv, 0, msg_top - 2, 400, 1, 60, 60, 80);
     cv_fill(cv, 0, msg_top - 1, 400, 240 - msg_top + 1, 6, 6, 10);
     {
-        const int COLS = 400 / F_TEXT.w - 1, LH = 13;
+        const int COLS = 400 / F_TEXT.w - 1, LH = 13, INDENT = 2;
         const int max_lines = (240 - msg_top - 2) / LH;
-        struct VLine { int gy, start, len; };
-        std::vector<VLine> lines;
-        for (int r = 0; r < v.msgsz.y; ++r)
-        {
-            const int gy = v.msgp.y - 1 + r;
-            if (gy < 0 || gy >= GRID_H)
-                continue;
-            const int x0 = std::max(0, v.msgp.x - 1);
-            int len = std::min((int)v.msgsz.x, GRID_W - x0);
-            const bool cursor_here = cursor_is_enabled && cy == gy;
-            while (len > 0 && grid[gy][x0 + len - 1].glyph == ' ')
-                --len;
-            if (cursor_here && cx - x0 + 1 > len)
-                len = cx - x0 + 1;
-            if (len <= 0)
-                continue;
-            int s = 0;
-            while (s < len)
+        struct Ch { char32_t c; int col; bool cursor; };
+        std::vector<std::vector<Ch>> lines;
+
+        auto wrap = [&](const std::vector<Ch> &text) {
+            size_t s = 0;
+            bool first = true;
+            while (s < text.size())
             {
-                int n = len - s;
-                if (n > COLS)
-                {
-                    n = COLS;
-                    for (int k = COLS; k > COLS / 2; --k)
-                        if (grid[gy][x0 + s + k].glyph == ' ')
+                const int width = first ? COLS : COLS - INDENT;
+                size_t n = std::min(text.size() - s, (size_t)width);
+                if (s + n < text.size())          // break at the last space
+                    for (size_t k = n; k > (size_t)width / 2; --k)
+                        if (text[s + k].c == ' ')
                         {
                             n = k;
                             break;
                         }
-                }
-                lines.push_back({ gy, x0 + s, n });
+                std::vector<Ch> line;
+                if (!first)
+                    line.assign(INDENT, Ch{ ' ', LIGHTGREY, false });
+                line.insert(line.end(), text.begin() + s, text.begin() + s + n);
+                lines.push_back(line);
                 s += n;
-                while (s < len && grid[gy][x0 + s].glyph == ' ')
+                while (s < text.size() && text[s].c == ' ' && !text[s].cursor)
                     ++s;
+                first = false;
+            }
+        };
+
+        const bool typing = cursor_is_enabled && cy >= v.msgp.y - 1
+                            && cy < v.msgp.y - 1 + v.msgsz.y;
+        if (!typing)
+        {
+            int last_turn = INT_MIN;
+            for (const auto &m : lib3ds_recent_messages(max_lines + 4))
+            {
+                std::vector<Ch> text;
+                int col = LIGHTGREY;
+                for (const auto &op : m.first.ops)
+                {
+                    if (op.type == FSOP_COLOUR)
+                        col = op.colour;
+                    else if (op.type == FSOP_TEXT)
+                        for (const char *p = op.text.c_str(); *p; )
+                        {
+                            char32_t c;
+                            const int len = utf8towc(&c, p);
+                            if (len <= 0)
+                                break;
+                            p += len;
+                            text.push_back({ c, col, false });
+                        }
+                }
+                // a dim mark starts each new turn, like crawl's '_'
+                const bool new_turn = m.second != last_turn;
+                last_turn = m.second;
+                const size_t before = lines.size();
+                wrap(text);
+                if (new_turn && lines.size() > before)
+                    lines[before].insert(lines[before].begin(), Ch{ 0x2022, DARKGREY, false });
+                else if (lines.size() > before)
+                    lines[before].insert(lines[before].begin(), Ch{ ' ', LIGHTGREY, false });
+            }
+            if (more_prompt_visible())
+            {
+                std::vector<Ch> more;
+                for (const char *p = "--more--"; *p; ++p)
+                    more.push_back({ (char32_t)*p, YELLOW, false });
+                lines.push_back(more);
             }
         }
+        else
+        {
+            for (int r = 0; r < v.msgsz.y; ++r)
+            {
+                const int gy = v.msgp.y - 1 + r;
+                if (gy < 0 || gy >= GRID_H)
+                    continue;
+                const int x0 = std::max(0, v.msgp.x - 1);
+                int len = std::min((int)v.msgsz.x, GRID_W - x0);
+                while (len > 0 && grid[gy][x0 + len - 1].glyph == ' ')
+                    --len;
+                if (cy == gy && cx - x0 + 1 > len)
+                    len = cx - x0 + 1;
+                if (len <= 0)
+                    continue;
+                std::vector<Ch> text;
+                for (int c = 0; c < len; ++c)
+                    text.push_back({ grid[gy][x0 + c].glyph, grid[gy][x0 + c].fg,
+                                     cy == gy && cx == x0 + c });
+                wrap(text);
+            }
+        }
+
         const int first = std::max(0, (int)lines.size() - max_lines);
         for (int i = first; i < (int)lines.size(); ++i)
         {
-            const VLine &l = lines[i];
             const int y = msg_top + 1 + (i - first) * LH;
-            for (int c = 0; c < l.len; ++c)
+            for (size_t c = 0; c < lines[i].size() && (int)c <= COLS; ++c)
             {
-                const cell_t &cell = grid[l.gy][l.start + c];
-                const int x = 4 + c * F_TEXT.w;
-                if (cursor_is_enabled && cy == l.gy && cx == l.start + c)
+                const Ch &ch = lines[i][c];
+                const int x = 4 + (int)c * F_TEXT.w;
+                if (ch.cursor)
                     cv_fill(cv, x, y + 11, F_TEXT.w, 2, 230, 230, 230);
-                if (cell.glyph == ' ')
+                if (ch.c == ' ')
                     continue;
-                const uint8_t *src = pal(cell.fg);
+                const uint8_t *src = pal(ch.col);
                 uint8_t fg[3] = { src[0], src[1], src[2] };
                 const int lum = (fg[0] * 3 + fg[1] * 6 + fg[2]) / 10;
                 if (lum < 150)                 // lift blues, purples, dark grey
                     for (int k = 0; k < 3; ++k)
                         fg[k] = (uint8_t)(fg[k] + (255 - fg[k]) * (150 - lum) / 220);
-                draw_char(cv, F_TEXT, x, y, cell.glyph, fg, nullptr);
+                draw_char(cv, F_TEXT, x, y, ch.c, fg, nullptr);
             }
         }
     }
@@ -1405,7 +1502,7 @@ struct softkey
     int special;
 };
 
-enum { SKEY_NONE = 0, SKEY_SHIFT = 1, SKEY_CTRL = 2 };
+enum { SKEY_NONE = 0, SKEY_SHIFT = 1, SKEY_CTRL = 2, SKEY_LIGHT = 3 };
 
 static const int KEY_W = 26, KEY_H = 34;
 static const int KB_X0 = 4, KB_Y0 = 22;
@@ -1471,6 +1568,8 @@ static void build_keyboard()
     };
     for (const softkey &k : arrows)
         softkeys.push_back(k);
+    // screen brightness (label drawn with the current level)
+    softkeys.push_back({ 120, 0, 72, 21, "Bright", 0, 0, SKEY_LIGHT });
 }
 
 static void draw_keyboard()
@@ -1478,8 +1577,7 @@ static void draw_keyboard()
     Canvas &cv = bot_cv;
     cv_fill(cv, 0, 0, 320, 240, 18, 18, 26);
     char status[64];
-    snprintf(status, sizeof(status), "%s%sSELECT: close",
-             sticky_shift ? "[SHIFT] " : "", sticky_ctrl ? "[CTRL] " : "");
+    snprintf(status, sizeof(status), "SELECT: close");
     draw_text(cv, F_TEXT, 6, 4, status, C_DIM);
 
     for (size_t i = 0; i < softkeys.size(); ++i)
@@ -1498,6 +1596,12 @@ static void draw_keyboard()
         {
             one[0] = (char)k.shifted;
             label = one;
+        }
+        char bright[16];
+        if (k.special == SKEY_LIGHT)
+        {
+            snprintf(bright, sizeof(bright), "Bright %d", g_bright);
+            label = bright;
         }
         const Font &f = strlen(label) == 1 ? F_BOLD : F_TEXT;
         draw_text(cv, f, k.x + (k.w - text_width(f, label)) / 2, k.y + (k.h - f.h) / 2, label, C_WHITE);
@@ -1529,10 +1633,10 @@ static void draw_bottom()
         draw_play_bottom();
     cv_blit(bot_cv, GFX_BOTTOM, GFX_LEFT);
     gfxFlushBuffers();
-    // single-buffered, so this only (re)presents the buffer -- and makes the
-    // GPU pick up the BGR8 format (the startup console left it at RGB565,
-    // which showed our 24-bit image as stripes)
-    gfxSwapBuffers();
+    // double-buffered: we drew into the hidden buffer, show it at the next
+    // VBlank (drawing into the visible one flickered). Presenting also makes
+    // the GPU pick up the BGR8 format the startup console had changed.
+    gfxScreenSwapBuffers(GFX_BOTTOM, false);
     bottom_dirty = false;
 }
 
@@ -1565,7 +1669,7 @@ static void draw_top()
     cv_blit(top_cv, GFX_TOP, GFX_LEFT);
     cv_blit(top_cv, GFX_TOP, GFX_RIGHT);
     gfxFlushBuffers();
-    gfxSwapBuffers();
+    gfxScreenSwapBuffers(GFX_TOP, true);
     top_dirty = false;
 }
 
@@ -1690,7 +1794,8 @@ static void draw_manual()
     cv_blit(top_cv, GFX_TOP, GFX_RIGHT);
     cv_blit(bot_cv, GFX_BOTTOM, GFX_LEFT);
     gfxFlushBuffers();
-    gfxSwapBuffers();
+    gfxScreenSwapBuffers(GFX_TOP, true);
+    gfxScreenSwapBuffers(GFX_BOTTOM, false);
 }
 
 static bool manual_input(u32 down, u32 rep)
@@ -1792,7 +1897,7 @@ static void poll_input()
         bottom_dirty = true;
         if (keyboard_overlay)
         {
-            if (tp.py < KB_Y0 && tp.px < 196)
+            if (tp.py < KB_Y0 && tp.px < 120)
             {
                 keyboard_overlay = kb_auto = false;
                 kb_dismissed = true;
@@ -1803,7 +1908,12 @@ static void poll_input()
             if (i >= 0)
             {
                 const softkey &k = softkeys[i];
-                if (k.special == SKEY_SHIFT)
+                if (k.special == SKEY_LIGHT)
+                {
+                    cycle_brightness();
+                    top_dirty = true;
+                }
+                else if (k.special == SKEY_SHIFT)
                     sticky_shift = !sticky_shift;
                 else if (k.special == SKEY_CTRL)
                     sticky_ctrl = !sticky_ctrl;
@@ -2150,11 +2260,30 @@ void lib3ds_fatal_wait(const char *msg)
 
 #ifndef __3DS_HARNESS__
 // Before the HOME Menu takes over it captures our framebuffers. Hand it the
-// plainest setup (2D, double-buffered, both BGR8, a fresh frame presented)
-// and restore stereo / single buffering when we come back.
+// plainest setup (2D, both BGR8, a fresh frame presented) and restore
+// stereo when we come back.
 static aptHookCookie home_cookie;
+// HOME diagnostics: what the HOME Menu was handed, in sdmc:/3ds/crawl/home.log
+static void home_log(const char *what)
+{
+    FILE *f = fopen("sdmc:/3ds/crawl/home.log", "a");
+    if (!f)
+        return;
+    GSPGPU_CaptureInfo ci;
+    memset(&ci, 0, sizeof(ci));
+    GSPGPU_ImportDisplayCaptureInfo(&ci);
+    fprintf(f, "%llu %s: top fmt=%02lx fb0=%p fb1=%p | bot fmt=%02lx fb0=%p fb1=%p\n",
+            (unsigned long long)osGetTime(), what,
+            (unsigned long)ci.screencapture[0].format, ci.screencapture[0].framebuf0_vaddr,
+            ci.screencapture[0].framebuf1_vaddr,
+            (unsigned long)ci.screencapture[1].format, ci.screencapture[1].framebuf0_vaddr,
+            ci.screencapture[1].framebuf1_vaddr);
+    fclose(f);
+}
 static void home_hook(APT_HookType type, void *)
 {
+    static const char *names[] = { "suspend", "restore", "sleep", "wakeup", "exit" };
+    home_log(type >= 0 && type < 5 ? names[type] : "?");
     if (!inited)
         return;
     if (type == APTHOOK_ONSUSPEND || type == APTHOOK_ONEXIT)
@@ -2173,8 +2302,6 @@ static void home_hook(APT_HookType type, void *)
     }
     else if (type == APTHOOK_ONRESTORE)
     {
-        gfxSetDoubleBuffering(GFX_TOP, false);
-        gfxSetDoubleBuffering(GFX_BOTTOM, false);
         gfxSet3D(true);
         top_dirty = bottom_dirty = grid_all_dirty = true;
     }
@@ -2202,8 +2329,8 @@ void console_startup()
 
     gfxSetScreenFormat(GFX_TOP, GSP_BGR8_OES);
     gfxSetScreenFormat(GFX_BOTTOM, GSP_BGR8_OES);
-    gfxSetDoubleBuffering(GFX_TOP, false);
-    gfxSetDoubleBuffering(GFX_BOTTOM, false);
+    gfxSetDoubleBuffering(GFX_TOP, true);    // draw hidden, then flip: no flicker
+    gfxSetDoubleBuffering(GFX_BOTTOM, true);
     gfxSet3D(true);
     osSetSpeedupEnable(true);           // New 3DS: 804 MHz + L2
     crt_mode = true;
@@ -2215,8 +2342,10 @@ void console_startup()
     grid_all_dirty = true;
 
     load_atlas();
+    load_brightness();
 #ifndef __3DS_HARNESS__
     aptHook(&home_cookie, home_hook, nullptr);
+    home_log("startup");
 #endif
 #ifdef SOUND_PLAY_3DS
     sound_init();
@@ -2302,8 +2431,11 @@ void clrscr_sys()
     grid_all_dirty = true;
 }
 
+static int view_text_run = 0;   // chars written in a row over the map, outside puttext()
+
 void gotoxy_sys(int x, int y)
 {
+    view_text_run = 0;
     if (cursor_is_enabled && cx >= 0 && cx < GRID_W && cy >= 0 && cy < GRID_H)
         grid[cy][cx].dirty = 1;
     cx = x - 1;
@@ -2405,9 +2537,15 @@ static void write_char(char32_t c)
         return;
     }
     grid[cy][cx] = { c, current_fg, current_bg, 1 };
-    // Text landing in the viewport that did not come from puttext() means
-    // crawl is drawing a full-screen interface over the map.
-    if (!in_puttext && !crt_mode && c != ' ' && region_of(cx, cy) == RG_VIEW)
+    // A run of text across the viewport that did not come from puttext()
+    // means crawl is drawing a full-screen interface over the map. Single
+    // squares redrawn in place (a monster dying, beams, missiles) are not.
+    if (!in_puttext && region_of(cx, cy) == RG_VIEW)
+        ++view_text_run;
+    else
+        view_text_run = 0;
+    if (!in_puttext && !crt_mode && c != ' ' && view_text_run >= 6
+        && region_of(cx, cy) == RG_VIEW)
     {
         crt_mode = true;
         grid_all_dirty = true;

@@ -1,5 +1,5 @@
-// Generated from docs/manual.txt -- edit that file, then regenerate.
 #pragma once
+// Generated from docs/manual.txt
 static const char *const kManualText = R"MANUAL(# Welcome
 Dungeon Crawl Stone Soup is a roguelike: a turn-based dungeon adventure where nothing happens until you act, every level is new each game, and death is permanent.
 
@@ -145,8 +145,11 @@ Effects show in colour on the top screen under your stats: for example Poison, S
 - Crawl's own help (? on the keyboard) explains every command in detail.
 
 # Troubleshooting
+## The screen is too dark
+Open the keyboard (the "keys" button or SELECT) and tap Bright to step through five brightness levels (0 is the original look, 2 is the default). Your choice is remembered. The 3DS's own brightness setting in the HOME Menu also helps; power-saving mode dims the screens.
+
 ## The first start takes minutes
-After every update Crawl rebuilds its databases and level cache. Later starts take seconds.
+Crawl builds its databases and level cache when the game data changes (rarely, with a new version). Other starts take seconds.
 
 ## The screen looks wrong or a button does nothing
 Press B to back out, then try again. Send a photo of anything that looks broken.

@@ -367,6 +367,26 @@ rw("maps.cc",
    "    time_t mtime = file_modtime(s); // by path, like the check (3DS: romfs stamp)\n    _reset_map_parser();\n",
    "file_modtime(s); // by path")
 
+
+# -------------------------------------------------- messages for the 3DS top
+# The 3DS dashboard shows messages in a bigger font (66 columns). Re-wrapping
+# crawl's already-wrapped 80-column lines left ragged fragments, so hand the
+# frontend whole messages (with colours) and let it wrap them once.
+rw("message.cc",
+   "string get_last_messages(int mcount, bool full)\n{",
+   "#ifdef __3DS__\n// 3DS frontend: the newest messages, oldest first, with their colours\n"
+   "vector<pair<formatted_string, int>> lib3ds_recent_messages(int mcount)\n{\n"
+   "    vector<pair<formatted_string, int>> out;\n"
+   "    const store_t& msgs = buffer.get_store();\n"
+   "    mcount = min(mcount, NUM_STORED_MESSAGES);\n"
+   "    for (int i = -1; (int)out.size() < mcount; --i)\n    {\n"
+   "        const message_line msg = msgs[i];\n        if (!msg)\n            break;\n"
+   "        out.insert(out.begin(), make_pair(formatted_string::parse_string(msg.full_text(),\n"
+   "                       channel_to_colour(msg.channel, msg.param)), msg.turn));\n    }\n"
+   "    return out;\n}\n#endif\n\n"
+   "string get_last_messages(int mcount, bool full)\n{",
+   "lib3ds_recent_messages(int mcount)")
+
 # -------------------------------------------------------------- sound (3DS)
 # A third sound backend next to WinMM / external command / SDL_mixer:
 # lib3ds_play_sound() plays raw PCM through ndsp. The CC0 crawl-sounds pack's
