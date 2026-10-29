@@ -66,9 +66,13 @@ synth("x-swish", "anoisesrc=color=white:seed=3:amplitude=0.8",
 synth("x-door", "aevalsrc='0.5*sin(2*PI*(170+90*t+25*sin(2*PI*9*t))*t)*(1-t/0.45)+0.3*random(0)*exp(-60*t)':s=22050",
       "lowpass=f=1800,highpass=f=90,volume=-4dB", 0.45)
 
+# UI click for on-screen keys and buttons: a short bright tick
+synth("x-click", "aevalsrc='0.9*sin(2*PI*2400*t)*exp(-450*t)+0.5*random(0)*exp(-900*t)':s=22050",
+      "highpass=f=600,volume=-9dB", 0.03)
+
 print("lifting quiet clips:")
 for f in sorted(os.listdir(OUT)):
-    if not f.endswith(".pcm") or f.startswith("x-step") or f == "null.pcm":
+    if not f.endswith(".pcm") or f.startswith("x-step") or f.startswith("x-click") or f == "null.pcm":
         continue
     g = lift(os.path.join(OUT, f))
     if g:

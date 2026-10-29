@@ -64,6 +64,9 @@ extern "C" { u32 __stacksize__ = 4 * 1024 * 1024; }
 #include "unicode.h"
 #include "format.h"
 #include <climits>
+#ifdef SOUND_PLAY_3DS
+void lib3ds_play_sound(const char *file);   // defined below
+#endif
 // message.cc (patched): newest messages with colours and turn numbers
 vector<pair<formatted_string, int>> lib3ds_recent_messages(int mcount);
 #include "version.h"
@@ -962,14 +965,20 @@ static void draw_button(Canvas &cv, const button &b, bool pressed, bool transluc
     else
         cv_fill(cv, b.x, b.y, b.w, b.h, pressed ? 90 : 40, pressed ? 90 : 42, pressed ? 130 : 56);
     if (pressed)
+    {
         cv_frame(cv, b.x, b.y, b.w, b.h, 250, 230, 120);
+        // pushed in: dark inner edge at top/left, contents move down 1 px
+        cv_fill(cv, b.x + 1, b.y + 1, b.w - 2, 2, 20, 20, 30);
+        cv_fill(cv, b.x + 1, b.y + 1, 2, b.h - 2, 20, 20, 30);
+    }
     else
         cv_frame(cv, b.x, b.y, b.w, b.h, 60, 62, 80);
+    const int push = pressed ? 1 : 0;
     if (b.tile)
     {
-        blit_tile(cv, b.tile, b.x + (b.w - 16) / 2, b.y + 3);
+        blit_tile(cv, b.tile, b.x + (b.w - 16) / 2 + push, b.y + 3 + push);
         const int lw = text_width(F_SMALL, b.label);
-        draw_text(cv, F_SMALL, b.x + (b.w - lw) / 2, b.y + b.h - 10, b.label, C_TEXT);
+        draw_text(cv, F_SMALL, b.x + (b.w - lw) / 2 + push, b.y + b.h - 10 + push, b.label, C_TEXT);
     }
     else
     {
@@ -979,11 +988,11 @@ static void draw_button(Canvas &cv, const button &b, bool pressed, bool transluc
         if (sp && f.w * (int)strlen(b.label) > b.w - 2)
         {
             std::string a(b.label, sp - b.label), c(sp + 1);
-            draw_text(cv, f, b.x + (b.w - text_width(f, a.c_str())) / 2, b.y + b.h / 2 - f.h, a.c_str(), C_WHITE);
-            draw_text(cv, f, b.x + (b.w - text_width(f, c.c_str())) / 2, b.y + b.h / 2, c.c_str(), C_WHITE);
+            draw_text(cv, f, b.x + (b.w - text_width(f, a.c_str())) / 2 + push, b.y + b.h / 2 - f.h + push, a.c_str(), C_WHITE);
+            draw_text(cv, f, b.x + (b.w - text_width(f, c.c_str())) / 2 + push, b.y + b.h / 2 + push, c.c_str(), C_WHITE);
         }
         else
-            draw_text(cv, f, b.x + (b.w - text_width(f, b.label)) / 2, b.y + (b.h - f.h) / 2, b.label, C_WHITE);
+            draw_text(cv, f, b.x + (b.w - text_width(f, b.label)) / 2 + push, b.y + (b.h - f.h) / 2 + push, b.label, C_WHITE);
     }
 }
 
@@ -1585,6 +1594,31 @@ static bool sticky_shift = false;
 static bool sticky_ctrl  = false;
 static int  pressed_key_index = -1;
 
+// Touch feedback (standard for every port): each tap on an on-screen key or
+// button clicks and shows the control pressed for at least ~120 ms, so even
+// a quick tap is seen.
+static u64  press_until = 0;
+static bool release_pending = false;
+static void ui_tap_feedback()
+{
+#ifdef SOUND_PLAY_3DS
+    if (Options.sounds_on)
+        lib3ds_play_sound("romfs:/dat/sounds/x-click.pcm");
+#endif
+    press_until = osGetTime() + 120;
+    bottom_dirty = true;
+}
+static void ui_feedback_tick()
+{
+    if (release_pending && osGetTime() >= press_until)
+    {
+        release_pending = false;
+        pressed_key_index = -1;
+        pressed_button = -1;
+        bottom_dirty = true;
+    }
+}
+
 static void build_keyboard()
 {
     softkeys.clear();
@@ -1653,6 +1687,15 @@ static void draw_keyboard()
         else if ((k.special == SKEY_SHIFT && sticky_shift) || (k.special == SKEY_CTRL && sticky_ctrl))
             kb[0] = 70, kb[1] = 120, kb[2] = 70;
         cv_fill(cv, k.x + 1, k.y + 1, k.w - 2, k.h - 2, kb[0], kb[1], kb[2]);
+        const bool down_k = (int)i == pressed_key_index;
+        if (down_k)
+        {
+            // pushed in: dark inner edge at top/left, label moves down 1 px
+            cv_fill(cv, k.x + 1, k.y + 1, k.w - 2, 2, 30, 30, 44);
+            cv_fill(cv, k.x + 1, k.y + 1, 2, k.h - 2, 30, 30, 44);
+        }
+        else
+            cv_fill(cv, k.x + 1, k.y + k.h - 3, k.w - 2, 2, 28, 29, 38);   // key edge
 
         const char *label = k.label;
         char one[2] = { 0, 0 };
@@ -1668,7 +1711,7 @@ static void draw_keyboard()
             label = bright;
         }
         const Font &f = strlen(label) == 1 ? F_BOLD : F_TEXT;
-        draw_text(cv, f, k.x + (k.w - text_width(f, label)) / 2, k.y + (k.h - f.h) / 2, label, C_WHITE);
+        draw_text(cv, f, k.x + (k.w - text_width(f, label)) / 2, k.y + (k.h - f.h) / 2 + (down_k ? 1 : 0), label, C_WHITE);
     }
 }
 
@@ -1764,8 +1807,8 @@ static const keymap_3ds button_map[] =
     { KEY_Y,      'g',      ' '      },   // pick up / next page
     { KEY_L,      0,        '<'      },   // map zoom out / page up
     { KEY_R,      0,        '>'      },   // map zoom in / page down
-    { KEY_ZL,     'i',      'i'      },   // inventory
-    { KEY_ZR,     'z',      'z'      },   // cast
+    { KEY_ZL,     'i',      ESCAPE   },   // inventory (press again to close)
+    { KEY_ZR,     'z',      ESCAPE   },   // cast (press again to close)
 };
 
 // Circle pad -> 8-way numpad with auto-repeat.
@@ -1888,7 +1931,12 @@ static bool manual_input(u32 down, u32 rep)
     hidCircleRead(&cp);
     mi.cpad_y = cp.dy;
     const bool was_dirty = g_manual.dirty();
-    if (!g_manual.update(mi))
+    const bool open = g_manual.update(mi);
+#ifdef SOUND_PLAY_3DS
+    if (g_manual.take_click() && Options.sounds_on)
+        lib3ds_play_sound("romfs:/dat/sounds/x-click.pcm");
+#endif
+    if (!open)
     {
         top_dirty = bottom_dirty = grid_all_dirty = true;   // back to the game
         return false;
@@ -1987,6 +2035,7 @@ static void poll_input()
             pressed_key_index = i;
             if (i >= 0)
             {
+                ui_tap_feedback();
                 const softkey &k = softkeys[i];
                 if (k.special == SKEY_LIGHT)
                 {
@@ -2015,6 +2064,7 @@ static void poll_input()
                        || buttons[b].special == BS_NO))
         {
             pressed_button = b;
+            ui_tap_feedback();
             press_button(buttons[b]);
             return;
         }
@@ -2040,11 +2090,8 @@ static void poll_input()
         }
     }
     if ((hidKeysUp() & KEY_TOUCH) && (pressed_key_index >= 0 || pressed_button >= 0))
-    {
-        pressed_key_index = -1;
-        pressed_button = -1;
-        bottom_dirty = true;
-    }
+        release_pending = true;          // cleared by ui_feedback_tick()
+    ui_feedback_tick();
 }
 
 // A tap on the map, mirroring webtiles' cell click: travel / move / attack
@@ -2175,7 +2222,7 @@ static void sound_shutdown()
 void lib3ds_play_sound(const char *file)
 {
     static int logged = 0;               // first plays go to sound.log
-    if (logged < 40 && !strstr(file ? file : "", "x-step"))
+    if (logged < 40 && !strstr(file ? file : "", "x-step") && !strstr(file ? file : "", "x-click"))
     {
         if (FILE *lf = fopen("sdmc:/3ds/crawl/sound.log", "a"))
         {
@@ -2733,6 +2780,7 @@ int getch_ck()
             update_screen();
             return k;
         }
+        ui_feedback_tick();
         if (!g_manual.active())
         {
             if (top_dirty)

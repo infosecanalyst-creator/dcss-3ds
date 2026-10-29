@@ -29,6 +29,9 @@
 //   choose section .... D-Pad moves around the section buttons on the bottom
 //                       screen; L/R = previous/next; or tap a section
 //   (the D-Pad never scrolls the text)
+// Touch feedback (also standard): a tapped button shows pressed for ~120 ms,
+// and take_click() reports each tap / section change so the game can play
+// its click sound.
 //   close ............. B or START (or the Close button)
 // The game must not see these inputs while the manual is open.
 // A libctru port can build the Input with input_from_hid() below: define
@@ -180,11 +183,17 @@ public:
     bool dirty() const { return m_dirty; }
 
     // Feed one frame of input. Returns true while the manual stays open.
+    // true once per tap or section change: play the UI click
+    bool take_click() { const bool c = m_click; m_click = false; return c; }
+
     bool update(const Input &in)
     {
+        if (m_press_frames > 0 && --m_press_frames == 0)
+            m_dirty = true;                  // pressed look ends
         if (!m_active)
             return false;
         const int nsec = (int)m_sections.size();
+        const int sec_before = m_sec;
         if (in.down & (K_B | K_START))
         {
             m_active = false;
@@ -228,6 +237,13 @@ public:
         if (in.touch_down)
         {
             const int b = button_at(in.tx, in.ty);
+            if (b != -1)
+            {
+                m_press_btn = b;
+                m_press_frames = 7;          // ~120 ms at 60 fps
+                m_click = true;
+                m_dirty = true;
+            }
             if (b == -2)
             {
                 m_active = false;
@@ -240,6 +256,8 @@ public:
                 m_dirty = true;
             }
         }
+        if (m_sec != sec_before)
+            m_click = true;                  // D-Pad / L / R moved to another section
         return m_active;
     }
 
@@ -315,8 +333,16 @@ public:
         {
             const Btn &b = m_buttons[i];
             const bool sel = b.section == m_sec, close = b.section == -2;
+            const bool down = m_press_frames > 0 && b.section == m_press_btn;
             fill(cv, b.x, b.y, b.w, b.h, close ? 120 : sel ? 70 : 40, close ? 40 : sel ? 70 : 42,
                  close ? 40 : sel ? 120 : 62);
+            if (down)
+            {
+                // pushed in: brighter face, dark inner edge at top/left
+                fill(cv, b.x, b.y, b.w, b.h, close ? 150 : 95, close ? 60 : 95, close ? 60 : 150);
+                fill(cv, b.x, b.y, b.w, 2, 20, 20, 30);
+                fill(cv, b.x, b.y, 2, b.h, 20, 20, 30);
+            }
             if (sel)
             {
                 fill(cv, b.x, b.y, b.w, 1, 250, 230, 120);
@@ -324,7 +350,8 @@ public:
             }
             const std::string &t = close ? std::string("Close") : m_sections[b.section].title;
             const int tw = std::min(ulen(t) * 6, b.w - 8);
-            text(cv, b.x + (b.w - tw) / 2, b.y + (b.h - 13) / 2, t, sel ? C_SEL : C_TXT, sel || close, b.x + b.w - 4);
+            const int push = down ? 1 : 0;
+            text(cv, b.x + (b.w - tw) / 2 + push, b.y + (b.h - 13) / 2 + push, t, sel ? C_SEL : C_TXT, sel || close, b.x + b.w - 4 + push);
         }
     }
 
@@ -339,7 +366,8 @@ private:
     std::vector<detail::Line> m_lines;
     std::vector<Btn> m_buttons;
     int m_sec = 0, m_scroll = 0, m_layout_sec = -1, m_layout_w = 0, m_cpad_acc = 0;
-    bool m_active = false, m_dirty = true;
+    bool m_active = false, m_dirty = true, m_click = false;
+    int m_press_btn = -3, m_press_frames = 0;   // touch feedback
 
     int m_view_h = 240;          // height of the last top canvas drawn
     int body_rows() const { return (m_view_h - HEAD - FOOT - 6) / LINE_H; }

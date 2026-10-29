@@ -62,8 +62,8 @@ Buttons run down both edges, outside your line of sight, so they never hide a mo
 | Y | pick up |
 | L | zoom the dungeon map out |
 | R | zoom the dungeon map in (three levels; remembered) |
-| ZL | inventory |
-| ZR | cast a spell |
+| ZL | inventory (press again to close) |
+| ZR | cast a spell (press again to close) |
 | Select | touch keyboard |
 | Start | this manual |
 | HOME | save and quit |
