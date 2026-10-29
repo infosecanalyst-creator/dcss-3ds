@@ -54,6 +54,7 @@ extern "C" { u32 __stacksize__ = 4 * 1024 * 1024; }
 #include "env.h"
 #include "libutil.h"
 #include "message.h"
+#include "package.h"
 #include "mon-info.h"
 #include "options.h"
 #include "player.h"
@@ -2393,10 +2394,17 @@ static void home_hook(APT_HookType type, void *)
             gfxSwapBuffers();
             gspWaitForVBlank();
         }
+        if (type == APTHOOK_ONSUSPEND && you.save)
+        {
+            you.save->lib3ds_close_fd();   // see package.cc: HOME Menu + open save
+            home_log("save file closed");
+        }
         home_log("suspend-ready");
     }
-    else if (type == APTHOOK_ONRESTORE)
+    else if (type == APTHOOK_ONRESTORE || type == APTHOOK_ONWAKEUP)
     {
+        if (you.save)
+            you.save->lib3ds_reopen_fd();
         gfxSet3D(true);
         top_dirty = bottom_dirty = grid_all_dirty = true;
     }
@@ -2711,6 +2719,8 @@ int getch_ck()
         if (!aptMainLoop())
         {
             // HOME -> close: treat like a hangup so crawl saves and exits.
+            if (you.save)
+                you.save->lib3ds_reopen_fd();
             crawl_state.seen_hups = true;
             return ESCAPE;
         }
@@ -2745,6 +2755,8 @@ bool kbhit()
     {
         if (!aptMainLoop())
         {
+            if (you.save)
+                you.save->lib3ds_reopen_fd();
             crawl_state.seen_hups = true;
             return false;
         }

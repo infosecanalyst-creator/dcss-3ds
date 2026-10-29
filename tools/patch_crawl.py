@@ -387,6 +387,24 @@ rw("message.cc",
    "string get_last_messages(int mcount, bool full)\n{",
    "lib3ds_recent_messages(int mcount)")
 
+
+# ------------------------------------------------ save file and the HOME Menu
+# The HOME Menu crashed (svcBreak in "menu") on HOME only while a game was
+# loaded, i.e. while the save package held its file open read/write. The 3DS
+# frontend closes that file before handing over to the HOME Menu and reopens
+# it on return (every package read/write seeks first, so no state is lost).
+rw("package.h",
+   "    void abort();\n    void unlink();\n",
+   "    void abort();\n    void unlink();\n#ifdef __3DS__\n    void lib3ds_close_fd();  // HOME Menu: release the file\n    void lib3ds_reopen_fd();\n#endif\n",
+   "lib3ds_close_fd();  // HOME Menu")
+rw("package.cc",
+   "void package::abort()\n{",
+   "#ifdef __3DS__\nvoid package::lib3ds_close_fd()\n{\n    if (fd != -1)\n    {\n        close(fd);\n        fd = -1;\n    }\n}\n\n"
+   "void package::lib3ds_reopen_fd()\n{\n    if (fd == -1 && !filename.empty())\n"
+   "        fd = open_u(filename.c_str(), (rw ? O_RDWR : O_RDONLY) | O_BINARY, 0666);\n}\n#endif\n\n"
+   "void package::abort()\n{",
+   "void package::lib3ds_close_fd()")
+
 # -------------------------------------------------------------- sound (3DS)
 # A third sound backend next to WinMM / external command / SDL_mixer:
 # lib3ds_play_sound() plays raw PCM through ndsp. The CC0 crawl-sounds pack's
