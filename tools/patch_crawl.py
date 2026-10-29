@@ -350,6 +350,23 @@ rw("files.cc",
    "    struct stat filestat;\n",
    "lib3ds_romfs_mtime(); // romfs mtime")
 
+
+# -------------------------------------------- portable des cache (harness)
+# The desktop harness can prebuild the level cache for the 3DS, but compiled
+# Lua bytecode isn't portable (x86-64 size_t != ARM). Harness builds write
+# the chunk's source text instead; the 3DS compiles it when the map is used.
+rw("dlua.cc",
+   "    if (!compiled.empty())\n    {\n        marshallByte(outf, CT_COMPILED);\n",
+   "#ifdef __3DS_HARNESS__\n    if (!chunk.empty())   // portable cache: source, not x86 bytecode\n    {\n"
+   "        marshallByte(outf, CT_SOURCE);\n        marshallString4(outf, chunk);\n    }\n    else\n#endif\n"
+   "    if (!compiled.empty())\n    {\n        marshallByte(outf, CT_COMPILED);\n",
+   "portable cache: source, not x86 bytecode")
+
+rw("maps.cc",
+   "    time_t mtime = file_modtime(dat);\n    _reset_map_parser();\n",
+   "    time_t mtime = file_modtime(s); // by path, like the check (3DS: romfs stamp)\n    _reset_map_parser();\n",
+   "file_modtime(s); // by path")
+
 # -------------------------------------------------------------- sound (3DS)
 # A third sound backend next to WinMM / external command / SDL_mixer:
 # lib3ds_play_sound() plays raw PCM through ndsp. The CC0 crawl-sounds pack's
