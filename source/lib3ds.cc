@@ -872,6 +872,21 @@ static const int MAP_COLS = 20, MAP_ROWS = 15;
 static const int MAP_CC = 10, MAP_CR = 7; // centre cell (the player)
 static const int BTN_W = 32;            // edge button columns
 
+// Map zoom (L = out, R = in): tiles are drawn at 16 px and scaled up.
+static const int kZoomTS[3] = { 16, 24, 32 };
+static int g_zoom = 0;
+static int zoom_ts()   { return kZoomTS[g_zoom]; }
+static int zoom_cols() { return (320 + zoom_ts() - 1) / zoom_ts() + 1; }
+static int zoom_rows() { return (240 + zoom_ts() - 1) / zoom_ts() + 1; }
+// screen position of the top-left of cell (0,0): the player's square stays
+// where it is at 1x (centre 168,120)
+static int zoom_ox()   { return 168 - ((zoom_cols() / 2) * zoom_ts() + zoom_ts() / 2); }
+static int zoom_oy()   { return 120 - ((zoom_rows() / 2) * zoom_ts() + zoom_ts() / 2); }
+static coord_def zoom_cell_grid(int c, int r)
+{
+    return vcentre + coord_def(c - zoom_cols() / 2, r - zoom_rows() / 2);
+}
+
 static coord_def map_cell_grid(int c, int r)
 {
     return vcentre + coord_def(c - MAP_CC, r - MAP_CR);
@@ -1226,7 +1241,17 @@ static void draw_play_top()
                 p[0] = r; p[1] = g; p[2] = b;
             }
         // the bottom map's window
-        cv_frame(cv, ox + vcentre.x - MAP_CC, oy + vcentre.y - MAP_CR, MAP_COLS, MAP_ROWS, 120, 120, 160);
+        if (g_zoom == 0)
+            cv_frame(cv, ox + vcentre.x - MAP_CC, oy + vcentre.y - MAP_CR, MAP_COLS, MAP_ROWS, 120, 120, 160);
+        else
+        {
+            // the part of the zoomed map actually on screen
+            const int zts = zoom_ts();
+            const int c0 = std::max(0, (0 - zoom_ox()) / zts), r0 = std::max(0, (0 - zoom_oy()) / zts);
+            const int vis_c = 320 / zts, vis_r = 240 / zts;
+            const coord_def g0 = zoom_cell_grid(c0, r0);
+            cv_frame(cv, ox + g0.x, oy + g0.y, vis_c, vis_r, 120, 120, 160);
+        }
     }
 
     // --- messages, in the 6x13 font (66 columns), newest at the bottom.
@@ -1370,17 +1395,55 @@ static void draw_play_bottom()
 #ifdef USE_TILE
     if (have_view && atlas_px)
     {
-        clip_x0 = 0; clip_x1 = 320; clip_y0 = 0; clip_y1 = 240;
-        for (int r = 0; r < MAP_ROWS; ++r)
-            for (int c = 0; c < MAP_COLS; ++c)
+        if (g_zoom == 0)
+        {
+            clip_x0 = 0; clip_x1 = 320; clip_y0 = 0; clip_y1 = 240;
+            for (int r = 0; r < MAP_ROWS; ++r)
+                for (int c = 0; c < MAP_COLS; ++c)
+                {
+                    const coord_def gc = map_cell_grid(c, r);
+                    const coord_def vc = gc - vorigin;
+                    if (vc.x < 0 || vc.y < 0 || vc.x >= vsize.x || vc.y >= vsize.y)
+                        continue;
+                    pack_cell(c * TS, r * TS, vcells[vc.y * vsize.x + vc.x]);
+                }
+            flush_ops(cv);
+        }
+        else
+        {
+            // draw the visible cells at 16 px off screen, then scale up
+            static uint8_t zpx[24 * TS * 17 * TS * 3];
+            const int cols = zoom_cols(), rows = zoom_rows();
+            Canvas zc = { cols * TS, rows * TS, zpx };
+            memset(zpx, 0, (size_t)zc.w * zc.h * 3);
+            clip_x0 = 0; clip_x1 = zc.w; clip_y0 = 0; clip_y1 = zc.h;
+            for (int r = 0; r < rows; ++r)
+                for (int c = 0; c < cols; ++c)
+                {
+                    const coord_def vc = zoom_cell_grid(c, r) - vorigin;
+                    if (vc.x < 0 || vc.y < 0 || vc.x >= vsize.x || vc.y >= vsize.y)
+                        continue;
+                    pack_cell(c * TS, r * TS, vcells[vc.y * vsize.x + vc.x]);
+                }
+            flush_ops(zc);
+            clip_x0 = 0; clip_x1 = 320; clip_y0 = 0; clip_y1 = 240;   // button icons
+            const int zts = zoom_ts(), ox = zoom_ox(), oy = zoom_oy();
+            for (int y = 0; y < 240; ++y)
             {
-                const coord_def gc = map_cell_grid(c, r);
-                const coord_def vc = gc - vorigin;
-                if (vc.x < 0 || vc.y < 0 || vc.x >= vsize.x || vc.y >= vsize.y)
+                const int sy = (y - oy) * TS / zts;
+                if (y - oy < 0 || sy >= zc.h)
                     continue;
-                pack_cell(c * TS, r * TS, vcells[vc.y * vsize.x + vc.x]);
+                uint8_t *d = cv.at(0, y);
+                for (int x = 0; x < 320; ++x, d += 3)
+                {
+                    const int sx = (x - ox) * TS / zts;
+                    if (x - ox < 0 || sx >= zc.w)
+                        continue;
+                    const uint8_t *s = zc.at(sx, sy);
+                    d[0] = s[0]; d[1] = s[1]; d[2] = s[2];
+                }
             }
-        flush_ops(cv);
+        }
     }
     else
 #endif
@@ -1698,8 +1761,8 @@ static const keymap_3ds button_map[] =
     { KEY_B,      ESCAPE,   ESCAPE   },
     { KEY_X,      'o',      0        },   // explore / (nothing: '?' would land in text fields)
     { KEY_Y,      'g',      ' '      },   // pick up / next page
-    { KEY_L,      's',      '<'      },   // wait a turn / page up
-    { KEY_R,      '5',      '>'      },   // rest / page down
+    { KEY_L,      0,        '<'      },   // map zoom out / page up
+    { KEY_R,      0,        '>'      },   // map zoom in / page down
     { KEY_ZL,     'i',      'i'      },   // inventory
     { KEY_ZR,     'z',      'z'      },   // cast
 };
@@ -1803,6 +1866,7 @@ static bool manual_input(u32 down, u32 rep)
     manual3ds::Input mi;
     static const struct { u32 b; uint32_t k; bool rep; } map[] = {
         { KEY_DUP, manual3ds::K_UP, true }, { KEY_DDOWN, manual3ds::K_DOWN, true },
+        { KEY_CSTICK_UP, manual3ds::K_SCROLL_UP, true }, { KEY_CSTICK_DOWN, manual3ds::K_SCROLL_DOWN, true },
         { KEY_DLEFT, manual3ds::K_LEFT, true }, { KEY_DRIGHT, manual3ds::K_RIGHT, true },
         { KEY_L, manual3ds::K_L, false }, { KEY_R, manual3ds::K_R, false },
         { KEY_A, manual3ds::K_A, false }, { KEY_B, manual3ds::K_B, false },
@@ -1862,6 +1926,21 @@ static void poll_input()
 
     const bool yesno = !crt_mode && yesno_prompt_visible();
     const bool more = !crt_mode && more_prompt_visible();
+    // L / R: zoom the dungeon map out / in (remembered between sessions)
+    if (!crt_mode && !keyboard_overlay && (down & (KEY_L | KEY_R)))
+    {
+        const int z = std::max(0, std::min(2, g_zoom + ((down & KEY_R) ? 1 : 0) - ((down & KEY_L) ? 1 : 0)));
+        if (z != g_zoom)
+        {
+            g_zoom = z;
+            bottom_dirty = top_dirty = true;
+            if (FILE *f = fopen("sdmc:/3ds/crawl/zoom.txt", "w"))
+            {
+                fprintf(f, "%d\n", g_zoom);
+                fclose(f);
+            }
+        }
+    }
     for (const keymap_3ds &m : button_map)
     {
         const bool is_dir = m.button & (KEY_DUP | KEY_DDOWN | KEY_DLEFT | KEY_DRIGHT);
@@ -1946,9 +2025,18 @@ static void poll_input()
             return;
         }
         // a map square
-        const int c = tp.px / TS, r = tp.py / TS;
-        if (c >= 0 && c < MAP_COLS && r >= 0 && r < MAP_ROWS)
-            tapq.push_back(map_cell_grid(c, r));
+        if (g_zoom == 0)
+        {
+            const int c = tp.px / TS, r = tp.py / TS;
+            if (c >= 0 && c < MAP_COLS && r >= 0 && r < MAP_ROWS)
+                tapq.push_back(map_cell_grid(c, r));
+        }
+        else
+        {
+            const int dx = tp.px - zoom_ox(), dy = tp.py - zoom_oy();
+            if (dx >= 0 && dy >= 0)
+                tapq.push_back(zoom_cell_grid(dx / zoom_ts(), dy / zoom_ts()));
+        }
     }
     if ((hidKeysUp() & KEY_TOUCH) && (pressed_key_index >= 0 || pressed_button >= 0))
     {
@@ -2272,6 +2360,12 @@ static void home_log(const char *what)
     GSPGPU_CaptureInfo ci;
     memset(&ci, 0, sizeof(ci));
     GSPGPU_ImportDisplayCaptureInfo(&ci);
+    fprintf(f, "%llu %s: app free %lu KB, linear free %lu KB, sys free %lu KB, base free %lu KB\n",
+            (unsigned long long)osGetTime(), what,
+            (unsigned long)(osGetMemRegionFree(MEMREGION_APPLICATION) / 1024),
+            (unsigned long)(linearSpaceFree() / 1024),
+            (unsigned long)(osGetMemRegionFree(MEMREGION_SYSTEM) / 1024),
+            (unsigned long)(osGetMemRegionFree(MEMREGION_BASE) / 1024));
     fprintf(f, "%llu %s: top fmt=%02lx fb0=%p fb1=%p | bot fmt=%02lx fb0=%p fb1=%p\n",
             (unsigned long long)osGetTime(), what,
             (unsigned long)ci.screencapture[0].format, ci.screencapture[0].framebuf0_vaddr,
@@ -2299,6 +2393,7 @@ static void home_hook(APT_HookType type, void *)
             gfxSwapBuffers();
             gspWaitForVBlank();
         }
+        home_log("suspend-ready");
     }
     else if (type == APTHOOK_ONRESTORE)
     {
@@ -2343,6 +2438,13 @@ void console_startup()
 
     load_atlas();
     load_brightness();
+    if (FILE *f = fopen("sdmc:/3ds/crawl/zoom.txt", "r"))
+    {
+        int z;
+        if (fscanf(f, "%d", &z) == 1 && z >= 0 && z <= 2)
+            g_zoom = z;
+        fclose(f);
+    }
 #ifndef __3DS_HARNESS__
     aptHook(&home_cookie, home_hook, nullptr);
     home_log("startup");

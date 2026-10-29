@@ -24,6 +24,16 @@
 #include "font6x13.h"
 #include "font6x13b.h"
 
+// Standard controls for every port's manual (keep them identical everywhere):
+//   scroll text ....... Circle Pad or C-Stick up/down (hold to keep scrolling)
+//   choose section .... D-Pad moves around the section buttons on the bottom
+//                       screen; L/R = previous/next; or tap a section
+//   (the D-Pad never scrolls the text)
+//   close ............. B or START (or the Close button)
+// The game must not see these inputs while the manual is open.
+// A libctru port can build the Input with input_from_hid() below: define
+// MANUAL3DS_HID and include <3ds.h> before this header.
+
 namespace manual3ds {
 
 struct Canvas
@@ -36,6 +46,7 @@ enum Key
 {
     K_UP = 1, K_DOWN = 2, K_LEFT = 4, K_RIGHT = 8, K_L = 16, K_R = 32,
     K_A = 64, K_B = 128, K_START = 256, K_X = 512, K_Y = 1024,
+    K_SCROLL_UP = 2048, K_SCROLL_DOWN = 4096,   // C-Stick (digital, with repeat)
 };
 
 struct Input
@@ -179,10 +190,26 @@ public:
             m_active = false;
             return false;
         }
-        if (in.down & K_UP)    scroll(-1);
-        if (in.down & K_DOWN)  scroll(+1);
-        if (in.down & K_LEFT)  scroll(-page());
-        if (in.down & K_RIGHT) scroll(+page());
+        // C-Stick scrolls the text
+        if (in.down & K_SCROLL_UP)   scroll(-1);
+        if (in.down & K_SCROLL_DOWN) scroll(+1);
+        // D-Pad moves around the section buttons (same grid as build_buttons)
+        if (nsec && (in.down & (K_UP | K_DOWN | K_LEFT | K_RIGHT)))
+        {
+            const int cols = nsec > 6 ? 2 : 1, rows = (nsec + cols - 1) / cols;
+            const int c = m_sec / rows, r = m_sec % rows;
+            int s = m_sec;
+            if ((in.down & K_UP) && r > 0)                      s = m_sec - 1;
+            if ((in.down & K_DOWN) && r < rows - 1 && m_sec + 1 < nsec) s = m_sec + 1;
+            if ((in.down & K_LEFT) && c > 0)                    s = m_sec - rows;
+            if ((in.down & K_RIGHT) && c < cols - 1)            s = std::min(m_sec + rows, nsec - 1);
+            if (s != m_sec)
+            {
+                m_sec = s;
+                m_scroll = 0;
+                m_dirty = true;
+            }
+        }
         if (in.down & (K_L | K_R) && nsec)
         {
             m_sec = (m_sec + (in.down & K_L ? nsec - 1 : 1)) % nsec;
@@ -273,7 +300,7 @@ public:
             fill(cv, bx, ty, 3, th, 150, 150, 200);
         }
         fill(cv, 0, cv.h - FOOT, cv.w, FOOT, 24, 24, 38);
-        text(cv, 8, cv.h - FOOT + 2, "↕ scroll   L/R section   B close", C_DIM);
+        text(cv, 8, cv.h - FOOT + 2, "Stick: scroll   D-Pad: section   B: close", C_DIM);
         m_dirty = false;
     }
 
@@ -470,5 +497,38 @@ private:
         return -1;
     }
 };
+
+#ifdef MANUAL3DS_HID
+// Input from the 3DS HID service, mapped to the standard controls above.
+// Call after hidScanInput(). touch_dy shifts the touch y (for games whose
+// bottom image is offset, e.g. a 200-line surface centred on 240).
+inline Input input_from_hid(int touch_dy = 0)
+{
+    const u32 down = hidKeysDown(), rep = hidKeysDownRepeat();
+    Input in;
+    static const struct { u32 b; uint32_t k; bool rep; } map[] = {
+        { KEY_DUP, K_UP, true }, { KEY_DDOWN, K_DOWN, true },
+        { KEY_CSTICK_UP, K_SCROLL_UP, true }, { KEY_CSTICK_DOWN, K_SCROLL_DOWN, true },
+        { KEY_DLEFT, K_LEFT, true }, { KEY_DRIGHT, K_RIGHT, true },
+        { KEY_L, K_L, false }, { KEY_R, K_R, false },
+        { KEY_A, K_A, false }, { KEY_B, K_B, false }, { KEY_START, K_START, false },
+    };
+    for (size_t i = 0; i < sizeof(map) / sizeof(map[0]); ++i)
+        if ((map[i].rep ? rep : down) & map[i].b)
+            in.down |= map[i].k;
+    if (down & KEY_TOUCH)
+    {
+        touchPosition tp;
+        hidTouchRead(&tp);
+        in.touch_down = true;
+        in.tx = tp.px;
+        in.ty = tp.py - touch_dy;
+    }
+    circlePosition cp;
+    hidCircleRead(&cp);
+    in.cpad_y = cp.dy;
+    return in;
+}
+#endif
 
 } // namespace manual3ds

@@ -8,7 +8,13 @@ Your goal is to find the Orb of Zot in the depths of the dungeon and carry it ba
 ## This port
 The New 3DS version is the full game with Crawl's own tile art. The touch screen is the dungeon and the top screen shows your character, the monsters in view, a map and the messages.
 
-Press Start at any time to open this manual. B or Start closes it, and the game waits while you read.
+Press Start at any time to open this manual. The game waits while you read.
+
+## Using this manual
+- Circle Pad or C-Stick up/down: scroll the text (hold to keep scrolling).
+- D-Pad: move between the sections on the touch screen. L / R: previous / next section.
+- Tap a section on the touch screen to jump to it.
+- B, Start or Close: back to the game.
 
 # The two screens
 ## Touch screen
@@ -54,8 +60,8 @@ Buttons run down both edges, outside your line of sight, so they never hide a mo
 | B | cancel / back |
 | X | explore |
 | Y | pick up |
-| L | wait one turn |
-| R | rest |
+| L | zoom the dungeon map out |
+| R | zoom the dungeon map in (three levels; remembered) |
 | ZL | inventory |
 | ZR | cast a spell |
 | Select | touch keyboard |
