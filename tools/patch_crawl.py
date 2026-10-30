@@ -434,8 +434,126 @@ for f in os.listdir(_snd):
     shutil.copy(os.path.join(_snd, f), os.path.join(SRC, "3ds", "sounds", f))
 print("  + 3ds/sounds/ (%d files) copied" % len(os.listdir(_snd)))
 
+# ----------------------------------------------------- keys named in text
+# Hints, the tutorial, help and menu footers name keys. On the 3DS a command
+# is named by its bottom-screen button ("[items]"), a hardware button ("B",
+# "L", "R") or else "[keys] x" (the keys button, then the key); literal keys
+# in the text are fixed by keytext3ds.h.
+_names = [
+    ("CMD_DISPLAY_INVENTORY", "[items]"), ("CMD_CAST_SPELL", "[cast]"), ("CMD_USE_ABILITY", "[abil]"),
+    ("CMD_DISPLAY_MAP", "[map]"), ("CMD_DISPLAY_CHARACTER_STATUS", "[char]"),
+    ("CMD_REPLAY_MESSAGES", "[msgs]"), ("CMD_EXPLORE", "[explr]"), ("CMD_AUTOFIGHT", "[fight]"),
+    ("CMD_REST", "[rest]"), ("CMD_WAIT", "[wait]"), ("CMD_PICKUP", "[pick up]"),
+    ("CMD_GO_UPSTAIRS", "[up]"), ("CMD_GO_DOWNSTAIRS", "[down]"),
+    ("CMD_MENU_EXIT", "B"), ("CMD_MENU_ACCEPT_SELECTION", "A"), ("CMD_MENU_PAGE_UP", "L"),
+    ("CMD_MENU_PAGE_DOWN", "R"), ("CMD_MENU_UP", "Up"), ("CMD_MENU_DOWN", "Down"),
+    ("CMD_MENU_TOGGLE_SELECTED", "tap"),
+]
+_items = ["CMD_EQUIP", "CMD_UNEQUIP", "CMD_WIELD_WEAPON", "CMD_UNWIELD_WEAPON", "CMD_WEAR_ARMOUR",
+          "CMD_REMOVE_ARMOUR", "CMD_WEAR_JEWELLERY", "CMD_REMOVE_JEWELLERY", "CMD_QUAFF", "CMD_READ",
+          "CMD_DROP", "CMD_EVOKE", "CMD_QUIVER_ITEM"]
+_moves = ["CMD_MOVE_LEFT", "CMD_MOVE_RIGHT", "CMD_MOVE_UP", "CMD_MOVE_DOWN", "CMD_MOVE_UP_LEFT",
+          "CMD_MOVE_UP_RIGHT", "CMD_MOVE_DOWN_LEFT", "CMD_MOVE_DOWN_RIGHT"]
+_fn = ["#ifdef TARGET_OS_3DS",
+       "// 3DS: the bottom-screen button (or hardware button) for a command",
+       "static const char *_3ds_command_name(command_type cmd)", "{", "    switch (cmd)", "    {"]
+_fn += ['    case %s: return "%s";' % (c, n) for c, n in _names]
+_fn += ["    // item actions: [items], tap the item, tap the action"]
+_fn += ["    case %s:" % c for c in _items] + ['        return "[items]";']
+_fn += ["    case %s:" % c for c in _moves] + ['        return "Circle Pad";']
+_fn += ["    default: return nullptr;", "    }", "}", "#endif", "", ""]
+rw("macro.cc",
+   "string command_to_string(command_type cmd, bool tutorial)\n{\n    const int key = command_to_key(cmd);\n",
+   "\n".join(_fn) +
+   "string command_to_string(command_type cmd, bool tutorial)\n{\n"
+   "#ifdef TARGET_OS_3DS\n"
+   "    if (const char *b = _3ds_command_name(cmd))\n        return b;\n"
+   "#endif\n"
+   "    const int key = command_to_key(cmd);\n",
+   "_3ds_command_name(command_type cmd)")
+rw("macro.cc",
+   "    else\n        result = keycode_to_name(key, false);\n\n    return result;\n}\n",
+   "    else\n        result = keycode_to_name(key, false);\n\n"
+   "#ifdef TARGET_OS_3DS\n    if (!result.empty())\n        result = \"[keys] \" + result;   // the keys button, then this key\n#endif\n"
+   "    return result;\n}\n",
+   "result = \"[keys] \" + result;")
+rw("menu.cc",
+   "        if (primary != secondary_key && key_to_command(secondary_key[0], KMC_MENU) == cmd)\n",
+   "#ifdef TARGET_OS_3DS\n        if (false) // 3DS: L / R are the page keys, no second key to show\n#else\n"
+   "        if (primary != secondary_key && key_to_command(secondary_key[0], KMC_MENU) == cmd)\n#endif\n",
+   "3DS: L / R are the page keys")
+rw("hints.cc",
+   "void hint_replace_cmds(string &text)\n{\n    size_t p;\n",
+   "#ifdef TARGET_OS_3DS\n#include \"keytext3ds.h\"\n#endif\n\n"
+   "void hint_replace_cmds(string &text)\n{\n    size_t p;\n"
+   "#ifdef TARGET_OS_3DS\n    keytext3ds::fix_before_commands(text);\n#endif\n",
+   "keytext3ds::fix_before_commands(text);")
+rw("hints.cc",
+   "        string input = text.substr(p + 7, q - p - 7);\n        input = \"<w>[\" + input;\n        input += \"]</w>\";\n        text.replace(p, q - p + 8, input);\n    }\n}\n",
+   "        string input = text.substr(p + 7, q - p - 7);\n"
+   "#ifdef TARGET_OS_3DS\n"
+   "        if (!input.empty() && input[0] == '[')   // already \"[items]\" / \"[keys] x\"\n"
+   "            input = \"<w>\" + input + \"</w>\";\n        else\n#endif\n"
+   "        {\n            input = \"<w>[\" + input;\n            input += \"]</w>\";\n        }\n"
+   "        text.replace(p, q - p + 8, input);\n    }\n"
+   "#ifdef TARGET_OS_3DS\n    keytext3ds::fix(text);\n#endif\n}\n",
+   "keytext3ds::fix(text);")
+
+# Item / feature descriptions: the actions (read, drop, wear, go down...)
+# become touch buttons on the bottom screen instead of "(r)ead" key hints.
+rw("describe.cc",
+   "static string _feat_action_desc(const vector<command_type>& actions,\n",
+   "#ifdef TARGET_OS_3DS\n"
+   "void lib3ds_set_actions(const vector<pair<string, int>> &actions);   // lib3ds.cc\n"
+   "// Show the popup's actions as bottom-screen buttons (cleared by passing {}).\n"
+   "static void _3ds_actions(const vector<command_type> &actions)\n{\n"
+   "    static const map<command_type, pair<string, int>> t = {\n"
+   "        { CMD_WIELD_WEAPON, { \"Wield\", 'w' } }, { CMD_UNWIELD_WEAPON, { \"Unwield\", 'u' } },\n"
+   "        { CMD_QUIVER_ITEM, { \"Quiver\", 'q' } }, { CMD_WEAR_ARMOUR, { \"Wear\", 'w' } },\n"
+   "        { CMD_REMOVE_ARMOUR, { \"Take off\", 't' } }, { CMD_EVOKE, { \"Evoke\", 'v' } },\n"
+   "        { CMD_READ, { \"Read\", 'r' } }, { CMD_WEAR_JEWELLERY, { \"Put on\", 'p' } },\n"
+   "        { CMD_REMOVE_JEWELLERY, { \"Remove\", 'r' } }, { CMD_QUAFF, { \"Drink\", 'q' } },\n"
+   "        { CMD_PICKUP, { \"Pick up\", 'g' } }, { CMD_DROP, { \"Drop\", 'd' } },\n"
+   "        { CMD_INSCRIBE_ITEM, { \"Inscribe\", 'i' } }, { CMD_ADJUST_INVENTORY, { \"Adjust\", '=' } },\n"
+   "        { CMD_SET_SKILL_TARGET, { \"Skill target\", 's' } }, { CMD_MAP_GOTO_TARGET, { \"Go there\", 'g' } },\n"
+   "        { CMD_GO_UPSTAIRS, { \"Go up\", '<' } }, { CMD_GO_DOWNSTAIRS, { \"Go down\", '>' } },\n"
+   "        { CMD_MAP_PREV_LEVEL, { \"View level\", '[' } }, { CMD_MAP_NEXT_LEVEL, { \"View level\", ']' } },\n"
+   "        { CMD_OPEN_DOOR, { \"Open\", 'o' } }, { CMD_CLOSE_DOOR, { \"Close\", 'c' } },\n"
+   "    };\n"
+   "    vector<pair<string, int>> v;\n"
+   "    bool potion = false;\n"
+   "    for (auto cmd : actions)\n    {\n"
+   "        if (cmd == CMD_QUAFF)\n            potion = true;\n"
+   "        if (potion && cmd == CMD_QUIVER_ITEM)\n        {\n            v.emplace_back(\"Quiver\", 'v');\n            continue;\n        }\n"
+   "        auto it = t.find(cmd);\n        if (it != t.end())\n            v.push_back(it->second);\n    }\n"
+   "    lib3ds_set_actions(v);\n}\n"
+   "#endif\n\n"
+   "static string _feat_action_desc(const vector<command_type>& actions,\n",
+   "static void _3ds_actions(const vector<command_type> &actions)")
+rw("describe.cc",
+   "        footer_text += formatted_string(_feat_action_desc(actions, feat));\n",
+   "#ifdef TARGET_OS_3DS\n        footer_text += formatted_string(\"Tap an action below.\");\n        _3ds_actions(actions);\n        (void)feat;\n#else\n"
+   "        footer_text += formatted_string(_feat_action_desc(actions, feat));\n#endif\n",
+   "_3ds_actions(actions);\n        (void)feat;")
+rw("describe.cc",
+   "    ui::run_layout(std::move(popup), done);\n    return _do_feat_action(pos, action);\n",
+   "    ui::run_layout(std::move(popup), done);\n"
+   "#ifdef TARGET_OS_3DS\n    _3ds_actions({});\n#endif\n"
+   "    return _do_feat_action(pos, action);\n",
+   "_3ds_actions({});\n#endif\n    return _do_feat_action")
+rw("describe.cc",
+   "        footer_text += formatted_string(_actions_desc(actions));\n",
+   "#ifdef TARGET_OS_3DS\n        footer_text += formatted_string(spells.empty() ? \"Tap an action below.\" : \"tap an action below.\");\n        _3ds_actions(actions);\n#else\n"
+   "        footer_text += formatted_string(_actions_desc(actions));\n#endif\n",
+   "\"Tap an action below.\" : \"tap an action below.\"")
+rw("describe.cc",
+   "    ui::run_layout(std::move(popup), done);\n\n    return action;\n}\n",
+   "    ui::run_layout(std::move(popup), done);\n"
+   "#ifdef TARGET_OS_3DS\n    _3ds_actions({});\n#endif\n\n    return action;\n}\n",
+   "_3ds_actions({});\n#endif\n\n    return action;")
+
 # -------------------------------------------------------------- new files
-for f in ("lib3ds.cc", "lib3ds.h", "font5x8.h", "font6x13.h", "font6x13b.h", "manual3ds.h", "manual_text.h"):
+for f in ("lib3ds.cc", "lib3ds.h", "keytext3ds.h", "font5x8.h", "font6x13.h", "font6x13b.h", "manual3ds.h", "manual_text.h"):
     shutil.copy(os.path.join(PORT, f), os.path.join(SRC, f))
     print("  + %-14s copied" % f)
 os.makedirs(os.path.join(SRC, "3ds"), exist_ok=True)

@@ -1503,6 +1503,17 @@ static void draw_play_bottom()
 static std::vector<menu_entry> cur_entries;
 static int entries_scroll = 0;
 
+// Actions offered by the item / feature description crawl is showing
+// ("Read", "Drop"...), set from describe.cc: big buttons above the bar, so
+// no key has to be typed (the text says "Tap an action below").
+static std::vector<std::pair<std::string, int>> g_actions;
+
+void lib3ds_set_actions(const std::vector<std::pair<std::string, int>> &actions)
+{
+    g_actions = actions;
+    bottom_dirty = true;
+}
+
 static void build_text_mode_buttons()
 {
     buttons.clear();
@@ -1524,9 +1535,21 @@ static void draw_text_mode_bottom()
     const int n = (int)cur_entries.size();
     const int cols = n <= 10 ? 1 : n <= 20 ? 2 : 3;
     const int rows = (n + cols - 1) / cols;
-    const int rowh = std::max(14, std::min(24, (240 - 32) / std::max(1, rows)));
+    // action buttons (item descriptions) sit right above the bar
+    const int na = (int)g_actions.size(), acols = 3, arows = (na + acols - 1) / acols;
+    const int abh = 30, agap = 3, alimit = 240 - 30 - (na ? arows * (abh + agap) + 2 : 0);
+    for (int i = 0; i < na; ++i)
+    {
+        const int aw = (320 - 4 - agap * (acols - 1)) / acols;
+        const int ax = 2 + (i % acols) * (aw + agap), ay = alimit + 2 + (i / acols) * (abh + agap);
+        buttons.push_back({ ax, ay, aw, abh, g_actions[i].first.c_str(), g_actions[i].second, 0, 0 });
+    }
+    const int nbar = 5 + na;
+    const int rowh = std::max(14, std::min(24, (alimit - 2) / std::max(1, rows)));
     const int colw = 320 / cols;
-    if (cur_entries.empty())
+    if (cur_entries.empty() && na)
+        draw_text(cv, F_TEXT, 8, 8, "Tap an action:", C_DIM);
+    else if (cur_entries.empty())
     {
         draw_text(cv, F_TEXT, 8, 8, "Use the buttons below, or Keys", C_DIM);
         draw_text(cv, F_TEXT, 8, 24, "for the touch keyboard.", C_DIM);
@@ -1538,7 +1561,7 @@ static void draw_text_mode_bottom()
         const menu_entry &e = cur_entries[i];
         const int cc = i / rows, rr = i % rows;
         const int x = cc * colw + 2, y = 2 + rr * rowh;
-        if (y + rowh > 240 - 30)
+        if (y + rowh > alimit)
             continue;
         // dim entries crawl draws in dark grey (unavailable choices)
         const int tfg = grid[e.row][e.tcol].fg;
@@ -1558,8 +1581,8 @@ static void draw_text_mode_bottom()
         }
         buttons.push_back({ x, y, colw - 4, rowh - 2, "", e.key, 0, 0 });
     }
-    for (size_t i = 0; i < 5; ++i)
-        draw_button(cv, buttons[i], (int)i == pressed_button, false);
+    for (int i = 0; i < nbar; ++i)
+        draw_button(cv, buttons[i], i == pressed_button, false);
 }
 
 // ===========================================================================
@@ -1734,7 +1757,7 @@ static void draw_bottom()
 {
     if (keyboard_overlay)
         draw_keyboard();
-    else if (crt_mode)
+    else if (crt_mode || !g_actions.empty())
         draw_text_mode_bottom();
     else
         draw_play_bottom();

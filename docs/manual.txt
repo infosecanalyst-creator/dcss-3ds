@@ -91,6 +91,13 @@ Open the keyboard and press the key. The common ones:
 | x | look around |
 | ? | Crawl's full help |
 
+## How the game names keys
+Crawl's hints and help name the 3DS controls:
+| [items] | a button on the touch screen (here: items) |
+| A / B | the A and B buttons |
+| L / R | page up / down in menus |
+| [keys] r | tap keys, then press r on the keyboard |
+
 # Your first game
 ## Picking a character
 On the main menu pick Dungeon Crawl, then a species and a background. Good first characters:
@@ -119,7 +126,8 @@ Choose Tutorial for Dungeon Crawl on the main menu for guided lessons.
 Your health regenerates slowly. Resting is free unless a monster is near. Potions of heal wounds are your emergency button.
 
 # Items
-- items (or ZL) shows your inventory. Tap an item to see what you can do with it.
+- items (or ZL) shows your inventory. Tap an item: its actions (Read, Drink, Wear, Drop...) appear as buttons on the touch screen. Tap one.
+- Reading a scroll: items, tap the scroll, tap Read. Drinking a potion is the same, with Drink.
 - Unknown potions and scrolls are identified by using them. Try them when you are safe and at full health.
 - Better armour and weapons are worth carrying; Crawl tells you their bonuses when you inspect them.
 - Gold buys items in shops. Walk into a shop and press > to enter.
