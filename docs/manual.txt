@@ -76,6 +76,21 @@ At the bottom: Esc, Enter, Page Up, Page Down and Keys.
 
 When Crawl wants you to type (your name, a travel destination, a search), the touch keyboard opens by itself. Shft and Ctrl stick for one key. The arrow keys are in its top row. Close it with Select.
 
+## Quick commands
+Under the keys of the keyboard are blue buttons for the commands without a button on the play screen. Tap keys, then one of them; the keyboard closes by itself.
+| Fire | fire or throw what is quivered |
+| Learn | learn a spell from a book |
+| Look | look around, examine monsters |
+| Close | close a door |
+| Skills | choose what to train |
+| Travel | travel to another level |
+| Search | find items or places you have seen |
+| Religion | your god and standing |
+| Overview | the dungeon overview |
+| Mutation | your mutations |
+| Swap | swap weapons |
+| Orders | give orders to allies |
+
 ## Commands without a button
 Open the keyboard and press the key. The common ones:
 | w | wield a weapon |

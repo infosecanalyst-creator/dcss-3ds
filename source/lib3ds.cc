@@ -1598,7 +1598,7 @@ struct softkey
     int special;
 };
 
-enum { SKEY_NONE = 0, SKEY_SHIFT = 1, SKEY_CTRL = 2, SKEY_LIGHT = 3 };
+enum { SKEY_NONE = 0, SKEY_SHIFT = 1, SKEY_CTRL = 2, SKEY_LIGHT = 3, SKEY_CMD = 4 };
 
 static const int KEY_W = 26, KEY_H = 34;
 static const int KB_X0 = 4, KB_Y0 = 22;
@@ -1621,6 +1621,9 @@ static int  pressed_key_index = -1;
 // button clicks and shows the control pressed for at least ~120 ms, so even
 // a quick tap is seen.
 static u64  press_until = 0;
+static bool kb_close_pending = false;   // a quick command was tapped
+static bool kb_auto = false;
+static bool kb_dismissed = false;   // closed by hand during this prompt
 static bool release_pending = false;
 static void ui_tap_feedback()
 {
@@ -1633,6 +1636,15 @@ static void ui_tap_feedback()
 }
 static void ui_feedback_tick()
 {
+    if (kb_close_pending && osGetTime() >= press_until)
+    {
+        kb_close_pending = false;
+        keyboard_overlay = false;
+        kb_dismissed = false;   // a prompt that follows (Search, Travel) may open it again
+        kb_auto = false;
+        pressed_key_index = -1;
+        bottom_dirty = true;
+    }
     if (release_pending && osGetTime() >= press_until)
     {
         release_pending = false;
@@ -1691,6 +1703,19 @@ static void build_keyboard()
         softkeys.push_back(k);
     // screen brightness (label drawn with the current level)
     softkeys.push_back({ 120, 0, 72, 21, "Bright", 0, 0, SKEY_LIGHT });
+    // quick commands under the keys: the commands without a play-screen
+    // button, one tap each (the keyboard closes after the tap)
+    static const struct { const char *label; int key; } quick[12] =
+    {
+        { "Fire", 'f' }, { "Learn", 'M' }, { "Look", 'x' }, { "Close", 'C' },
+        { "Skills", 'm' }, { "Travel", 'G' },
+        { "Search", CONTROL('F') }, { "Religion", '^' }, { "Overview", CONTROL('O') },
+        { "Mutation", 'A' }, { "Swap", '\'' }, { "Orders", 't' },
+    };
+    const int qy = KB_Y0 + 5 * KEY_H + 2, qw = (320 - 2 * KB_X0) / 6, qh = (240 - qy) / 2;
+    for (int i = 0; i < 12; ++i)
+        softkeys.push_back({ KB_X0 + (i % 6) * qw, qy + (i / 6) * qh, qw, qh,
+                             quick[i].label, quick[i].key, 0, SKEY_CMD });
 }
 
 static void draw_keyboard()
@@ -1709,6 +1734,8 @@ static void draw_keyboard()
             kb[0] = 110, kb[1] = 110, kb[2] = 150;
         else if ((k.special == SKEY_SHIFT && sticky_shift) || (k.special == SKEY_CTRL && sticky_ctrl))
             kb[0] = 70, kb[1] = 120, kb[2] = 70;
+        else if (k.special == SKEY_CMD)
+            kb[0] = 40, kb[1] = 56, kb[2] = 96;     // quick commands: blue
         cv_fill(cv, k.x + 1, k.y + 1, k.w - 2, k.h - 2, kb[0], kb[1], kb[2]);
         const bool down_k = (int)i == pressed_key_index;
         if (down_k)
@@ -1883,8 +1910,6 @@ static void press_button(const button &b)
 
 // Text entry prompts (name, travel destination, search...) bring up the
 // keyboard by themselves, and put it away again when the prompt ends.
-static bool kb_auto = false;
-static bool kb_dismissed = false;   // closed by hand during this prompt
 static void auto_keyboard()
 {
     // crawl shows the cursor while it reads a line of text (name, travel
@@ -2069,6 +2094,13 @@ static void poll_input()
                     sticky_shift = !sticky_shift;
                 else if (k.special == SKEY_CTRL)
                     sticky_ctrl = !sticky_ctrl;
+                else if (k.special == SKEY_CMD)
+                {
+                    // the command, then close the keyboard once the press has shown
+                    sticky_shift = sticky_ctrl = false;
+                    keyq.push_back(k.key);
+                    kb_close_pending = true;
+                }
                 else
                 {
                     int key = k.key;
