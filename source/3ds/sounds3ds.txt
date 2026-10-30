@@ -2,7 +2,9 @@
 #
 # Pack: crawl-sounds by nerdcorenet (CC0), github.com/nerdcorenet/crawl-sounds
 # Clips are converted to raw PCM and loudness-lifted by tools/gen_sounds.py.
-# The "x-" clips are synthesized for this port (CC0).
+# The "x-" clips, and thud/fall/falldie/paper5 (which replace the pack's
+# clips of unknown origin), are synthesized for this port (CC0).
+# Every file's source and licence: SOUND-CREDITS.txt at the repo root.
 #
 # When several rules match a message, the LAST one wins, so these general
 # rules come first and the pack's specific ones (per monster, etc.) override.

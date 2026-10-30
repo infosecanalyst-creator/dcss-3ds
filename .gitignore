@@ -23,3 +23,4 @@ ULTIMA4/
 ULTIMA6/
 source/3ds/tiles16.bin
 _incoming/
+__pycache__/

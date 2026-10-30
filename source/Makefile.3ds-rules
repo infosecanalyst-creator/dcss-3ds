@@ -13,7 +13,7 @@ ifdef TARGET_3DS
 ROMFS_DIR   := romfs
 SMDH_TITLE  := Dungeon Crawl Stone Soup
 SMDH_DESC   := DCSS $(SRC_VERSION) for New 3DS
-SMDH_AUTHOR := Crawl devteam / 3DS port
+SMDH_AUTHOR := DCSS (GPL) / unofficial 3DS port
 ICON_PNG    := 3ds/icon.png
 RSF         := 3ds/crawl.rsf
 

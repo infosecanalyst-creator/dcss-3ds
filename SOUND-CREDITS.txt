@@ -1,0 +1,95 @@
+Sound credits -- dcss-3ds
+=========================
+
+Every file in source/3ds/sounds/ is listed below with its source and
+licence. All clips are raw PCM (signed 16-bit little-endian, mono, 22050 Hz).
+None of them is under a licence that restricts redistribution.
+
+1. crawl-sounds pack (CC0 1.0)
+------------------------------
+Source:  https://github.com/nerdcorenet/crawl-sounds (by nerdcorenet)
+Licence: CC0 1.0 Universal -- full text in source/3ds/sounds/LICENCE-crawl-sounds.txt
+Changes: converted from OGG to raw PCM and loudness-lifted by tools/gen_sounds.py.
+
+The pack's sounds come from the Freesound project. The number in each
+filename is the Freesound sound ID of the original
+(https://freesound.org/s/<ID>/); jinglestone mixes two Freesound clips.
+null.pcm is an empty (zero-length) file used to silence a message.
+
+  arrow-527435.pcm                     freesound.org/s/527435/
+  batting-546823.pcm                   freesound.org/s/546823/
+  battlecrowd-764267.pcm               freesound.org/s/764267/
+  bell1-331675.pcm                     freesound.org/s/331675/
+  boomerang-446450.pcm                 freesound.org/s/446450/
+  burning-729395.pcm                   freesound.org/s/729395/
+  butterfly-198818.pcm                 freesound.org/s/198818/
+  clothing-408566.pcm                  freesound.org/s/408566/
+  coins-336571.pcm                     freesound.org/s/336571/
+  coins-336585.pcm                     freesound.org/s/336585/
+  coins-776101.pcm                     freesound.org/s/776101/
+  coins-847350.pcm                     freesound.org/s/847350/
+  coins1-50691.pcm                     freesound.org/s/50691/
+  coins2-50691.pcm                     freesound.org/s/50691/
+  cork-506142.pcm                      freesound.org/s/506142/
+  crunch-655708.pcm                    freesound.org/s/655708/
+  dogbark-770029.pcm                   freesound.org/s/770029/
+  doggrowl-625501.pcm                  freesound.org/s/625501/
+  dogyelp-160478.pcm                   freesound.org/s/160478/
+  flame-507724.pcm                     freesound.org/s/507724/
+  grunt-471142.pcm                     freesound.org/s/471142/
+  gulp-788239.pcm                      freesound.org/s/788239/
+  hissing-826834.pcm                   freesound.org/s/826834/
+  hurt-413186.pcm                      freesound.org/s/413186/
+  ice-380493.pcm                       freesound.org/s/380493/
+  item-651515.pcm                      freesound.org/s/651515/
+  jinglestone-669449-731046.pcm        freesound.org/s/669449/, freesound.org/s/731046/
+  levelup-682633.pcm                   freesound.org/s/682633/
+  magic-703249.pcm                     freesound.org/s/703249/
+  magic1-125164.pcm                    freesound.org/s/125164/
+  magic2-826131.pcm                    freesound.org/s/826131/
+  magic2b-125164.pcm                   freesound.org/s/125164/
+  metalslide-585245.pcm                freesound.org/s/585245/
+  monsterpain-567998.pcm               freesound.org/s/567998/
+  null.pcm                             empty file (no audio content)
+  rat-288941.pcm                       freesound.org/s/288941/
+  ratting-143250.pcm                   freesound.org/s/143250/
+  ring-425966.pcm                      freesound.org/s/425966/
+  sand-778568.pcm                      freesound.org/s/778568/
+  shout1-718967.pcm                    freesound.org/s/718967/
+  shout2-718967.pcm                    freesound.org/s/718967/
+  sigh-265249.pcm                      freesound.org/s/265249/
+  slimy-751341.pcm                     freesound.org/s/751341/
+  slither-46631.pcm                    freesound.org/s/46631/
+  smallmonsterpain-567998.pcm          freesound.org/s/567998/
+  smashbug-269485.pcm                  freesound.org/s/269485/
+  splash-807961.pcm                    freesound.org/s/807961/
+  squish2-269485.pcm                   freesound.org/s/269485/
+  squishing-802616.pcm                 freesound.org/s/802616/
+  stab1-851647.pcm                     freesound.org/s/851647/
+  underboot-739191.pcm                 freesound.org/s/739191/
+  water-730154.pcm                     freesound.org/s/730154/
+  wince-471142.pcm                     freesound.org/s/471142/
+
+2. Generated for dcss-3ds (CC0 1.0)
+-----------------------------------
+These replace the pack's clips of the same names, whose original source is
+not recorded. They are synthesized from scratch (numpy, no samples) by
+tools/synth_sounds.py. Generated for dcss-3ds, CC0 -- released into the
+public domain under CC0 1.0 (https://creativecommons.org/publicdomain/zero/1.0/).
+
+  fall.pcm                             falling whoosh, then a thud
+  falldie.pcm                          long falling whoosh, heavy thud and bounce
+  paper5.pcm                           paper rustle (filtered noise)
+  thud.pcm                             short low thump
+
+3. Synthesized by tools/gen_sounds.py (CC0 1.0)
+-----------------------------------------------
+Made with ffmpeg's signal generators (noise, sine), no samples. Generated
+for dcss-3ds, CC0.
+
+  x-click.pcm                          UI click for touch keys and buttons
+  x-door.pcm                           door creak and knock
+  x-stairs.pcm                         footsteps on stairs
+  x-step1.pcm                          soft footstep
+  x-step2.pcm                          soft footstep
+  x-swish.pcm                          miss swish

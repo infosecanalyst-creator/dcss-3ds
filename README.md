@@ -3,6 +3,11 @@
 A console-mode port of DCSS (current master, 0.34-era) to the Nintendo 3DS,
 done as a small platform layer on top of the upstream code rather than a fork.
 
+DCSS is free software, so no game files need to be supplied: the build
+fetches the upstream source and data itself.
+
+*Not affiliated with or endorsed by the DCSS team or Nintendo.*
+
 **Status: runs on a New 3DS XL** (databases, character creation, play).
 The tiles frontend below is verified in a desktop harness (`tools/harness/`
 in spirit: the real Crawl linked on Linux against a fake libctru, scripted
@@ -37,7 +42,7 @@ First run clones crawl into `dcss-3ds/crawl`, pulls the four contrib libs
 `out/3ds/crawl/crawl.3dsx`. Copy `out/3ds` onto the SD card root and launch
 from the Homebrew Launcher.
 
-### Native devkitPro (what the SimGolf setup installed)
+### Native devkitPro
 
 Works too, inside devkitPro's msys2 shell: `pacman -S make git perl python
 flex bison pkg-config` (plus a host `gcc`/`libpng-devel` for crawl's tile
@@ -138,4 +143,16 @@ interrupts them), so pad with `WAIT`s. Frames land as `top_NNNN.ppm`,
   `arm-none-eabi-g++`, but if `config.h` comes out wrong, that is where to look.
 - Crawl's `-Werror`-style warnings are off for the port files; upstream
   warnings on ARM may need `CFWARN_L += -Wno-...` in the Makefile block.
-- No sound, no networking, no webtiles — console mode only, by design.
+- No networking, no webtiles — console mode only, by design.
+
+## Licence
+
+Dungeon Crawl Stone Soup is copyright its contributors (the DCSS devteam
+and everyone credited in crawl's `CREDITS.txt`) and is licensed under the
+GNU General Public License, version 2 or (at your option) any later
+version. This port's own files are distributed under the same terms:
+**GPL-2.0-or-later**. The full GPL v2 text is in [`LICENSE`](LICENSE).
+
+The tile art the build bakes into `tiles16.bin` comes from crawl's
+`rltiles`, which upstream releases as CC0. The sound effects are CC0;
+every clip's source is listed in [`SOUND-CREDITS.txt`](SOUND-CREDITS.txt).

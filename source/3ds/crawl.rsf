@@ -6,7 +6,7 @@ BasicInfo:
   Logo                    : Homebrew
 
 TitleInfo:
-  UniqueId                : 0x0CA11
+  UniqueId                : 0xFDC55
   Category                : Application
 
 Option:
