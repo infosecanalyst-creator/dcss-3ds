@@ -153,7 +153,9 @@ rw("main.cc",
 rw("main.cc",
    "int main(int argc, char *argv[])\n{\n",
    "int main(int argc, char *argv[])\n{\n"
-   "#ifdef TARGET_OS_3DS\n    lib3ds_early_init();\n#endif\n",
+   "#ifdef TARGET_OS_3DS\n    lib3ds_early_init();\n"
+   "    { char b[400]; snprintf(b, sizeof b, \"main: argc=%d argv0=%s argv1=%s\", argc, argv[0] ? argv[0] : \"\", argc > 1 ? argv[1] : \"\"); lib3ds_boot_mark(b); }\n"
+   "    // launchers and emulators may pass extra arguments; crawl would print its help and quit\n    argc = 1;\n#endif\n",
    "lib3ds_early_init();")
 
 
