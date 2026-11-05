@@ -208,6 +208,9 @@ AccessControlInfo:
     - CategoryHomeMenu
     - SeedDB
 
+RomFs:
+  RootPath: $(APP_ROMFS)
+
 SystemControlInfo:
   SaveDataSize: 0KB
   RemasterVersion: 0

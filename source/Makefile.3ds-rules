@@ -47,9 +47,9 @@ crawl.3dsx: $(GAME) crawl.smdh romfs
 # makerom is not part of devkitPro; get it from github.com/3DSGuy/Project_CTR
 crawl.cia: $(GAME) romfs $(RSF) $(ICON_PNG)
 	makerom -f cia -o $@ -elf $(GAME) -rsf $(RSF) -icon crawl.smdh \
-	        -banner 3ds/banner.bnr -exefslogo -target t -romfs-dir $(ROMFS_DIR) \
+	        -banner 3ds/banner.bnr -exefslogo -target t -DAPP_ROMFS=$(ROMFS_DIR) \
 	        || makerom -f cia -o $@ -elf $(GAME) -rsf $(RSF) -icon crawl.smdh \
-	        -target t -romfs-dir $(ROMFS_DIR)
+	        -target t -DAPP_ROMFS=$(ROMFS_DIR)
 	@ls -la $@
 
 cia: crawl.smdh crawl.cia
