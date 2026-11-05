@@ -20,11 +20,22 @@ jobs:
       - uses: actions/checkout@v4
       - name: Build
         run: bash ./build-3ds.sh 2>&1 | tee build.log; test -f out/3ds/crawl/crawl.3dsx
+      - name: Build .cia (124 MB extended memory; for emulators and FBI)
+        continue-on-error: true
+        run: |
+          git clone -q --depth 1 https://github.com/3DSGuy/Project_CTR /tmp/ctr
+          make -C /tmp/ctr/makerom -j4 >/dev/null 2>&1 || make -C /tmp/ctr/makerom 2>&1 | tail -20
+          cp /tmp/ctr/makerom/bin/makerom /usr/local/bin/
+          export PATH="$DEVKITARM/bin:$DEVKITPRO/tools/bin:$PATH"
+          SRC=$(dirname "$(find . -name crawl.smdh | grep crawl-ref | head -1)")
+          make -C "$SRC" TARGET_3DS=y cia 2>&1 | tee cia.log
+          cp "$SRC/crawl.cia" crawl.cia
       - name: Collect
         if: always()
         run: |
           mkdir -p out
           cp out/3ds/crawl/crawl.3dsx out/ 2>/dev/null || true
+          cp crawl.cia cia.log out/ 2>/dev/null || true
           cp build.log build-3ds.log out/ 2>/dev/null || true
           echo "$GITHUB_SHA" > out/SOURCE_COMMIT
       - name: Publish to builds branch
