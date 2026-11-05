@@ -2396,7 +2396,7 @@ void enter_headless_mode() { headless = true; }
 
 // Boot trace: one line per startup step in sdmc:/3ds/crawl/boot.log, to see how far a launch gets
 // (an emulator that exits in two seconds leaves no other trace).
-static void boot_mark(const char *what)
+void lib3ds_boot_mark(const char *what)
 {
     mkdir("sdmc:/3ds", 0777);
     mkdir("sdmc:/3ds/crawl", 0777);
@@ -2406,6 +2406,7 @@ static void boot_mark(const char *what)
         fclose(f);
     }
 }
+#define boot_mark lib3ds_boot_mark
 static struct BootMarkStatic { BootMarkStatic() { boot_mark("static init (before main)"); } } g_boot_mark_static;
 
 void lib3ds_early_init()

@@ -12,6 +12,8 @@
 // the bottom screen for early errors, mounts romfs and creates the save
 // directory tree on the SD card.
 void lib3ds_early_init();
+// Boot trace: appends one line to sdmc:/3ds/crawl/boot.log
+void lib3ds_boot_mark(const char *what);
 // Item / feature description actions as bottom-screen buttons (describe.cc).
 #include <string>
 #include <utility>

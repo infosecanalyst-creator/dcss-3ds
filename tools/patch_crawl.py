@@ -156,6 +156,57 @@ rw("main.cc",
    "#ifdef TARGET_OS_3DS\n    lib3ds_early_init();\n#endif\n",
    "lib3ds_early_init();")
 
+
+# ---------------------------------------------------------------- boot trace (main.cc)
+rw("main.cc",
+   "    init_crash_handler();\n",
+   "#ifdef TARGET_OS_3DS\n    lib3ds_boot_mark(\"main: before init_crash_handler\");\n#endif\n    init_crash_handler();\n#ifdef TARGET_OS_3DS\n    lib3ds_boot_mark(\"main: after init_crash_handler\");\n#endif\n",
+   "main: before init_crash_handler")
+rw("main.cc",
+   "    _startup_asserts();\n",
+   "#ifdef TARGET_OS_3DS\n    lib3ds_boot_mark(\"main: before _startup_asserts\");\n#endif\n    _startup_asserts();\n#ifdef TARGET_OS_3DS\n    lib3ds_boot_mark(\"main: after _startup_asserts\");\n#endif\n",
+   "main: before _startup_asserts")
+rw("main.cc",
+   "    init_keybindings();\n",
+   "#ifdef TARGET_OS_3DS\n    lib3ds_boot_mark(\"main: before init_keybindings\");\n#endif\n    init_keybindings();\n#ifdef TARGET_OS_3DS\n    lib3ds_boot_mark(\"main: after init_keybindings\");\n#endif\n",
+   "main: before init_keybindings")
+rw("main.cc",
+   "    init_element_colours();\n",
+   "#ifdef TARGET_OS_3DS\n    lib3ds_boot_mark(\"main: before init_element_colours\");\n#endif\n    init_element_colours();\n#ifdef TARGET_OS_3DS\n    lib3ds_boot_mark(\"main: after init_element_colours\");\n#endif\n",
+   "main: before init_element_colours")
+rw("main.cc",
+   "    get_system_environment();\n",
+   "#ifdef TARGET_OS_3DS\n    lib3ds_boot_mark(\"main: before get_system_environment\");\n#endif\n    get_system_environment();\n#ifdef TARGET_OS_3DS\n    lib3ds_boot_mark(\"main: after get_system_environment\");\n#endif\n",
+   "main: before get_system_environment")
+rw("main.cc",
+   "    init_signals();\n",
+   "#ifdef TARGET_OS_3DS\n    lib3ds_boot_mark(\"main: before init_signals\");\n#endif\n    init_signals();\n#ifdef TARGET_OS_3DS\n    lib3ds_boot_mark(\"main: after init_signals\");\n#endif\n",
+   "main: before init_signals")
+rw("main.cc",
+   "    init_monsters();\n",
+   "#ifdef TARGET_OS_3DS\n    lib3ds_boot_mark(\"main: before init_monsters\");\n#endif\n    init_monsters();\n#ifdef TARGET_OS_3DS\n    lib3ds_boot_mark(\"main: after init_monsters\");\n#endif\n",
+   "main: before init_monsters")
+rw("main.cc",
+   "    init_item_name_cache();\n",
+   "#ifdef TARGET_OS_3DS\n    lib3ds_boot_mark(\"main: before init_item_name_cache\");\n#endif\n    init_item_name_cache();\n#ifdef TARGET_OS_3DS\n    lib3ds_boot_mark(\"main: after init_item_name_cache\");\n#endif\n",
+   "main: before init_item_name_cache")
+rw("main.cc",
+   "    validate_basedirs();\n",
+   "#ifdef TARGET_OS_3DS\n    lib3ds_boot_mark(\"main: before validate_basedirs\");\n#endif\n    validate_basedirs();\n#ifdef TARGET_OS_3DS\n    lib3ds_boot_mark(\"main: after validate_basedirs\");\n#endif\n",
+   "main: before validate_basedirs")
+rw("main.cc",
+   "    read_init_file();\n",
+   "#ifdef TARGET_OS_3DS\n    lib3ds_boot_mark(\"main: before read_init_file\");\n#endif\n    read_init_file();\n#ifdef TARGET_OS_3DS\n    lib3ds_boot_mark(\"main: after read_init_file\");\n#endif\n",
+   "main: before read_init_file")
+rw("main.cc",
+   "    _launch_game_loop();\n",
+   "#ifdef TARGET_OS_3DS\n    lib3ds_boot_mark(\"main: before _launch_game_loop\");\n#endif\n    _launch_game_loop();\n#ifdef TARGET_OS_3DS\n    lib3ds_boot_mark(\"main: after _launch_game_loop\");\n#endif\n",
+   "main: before _launch_game_loop")
+rw("main.cc",
+   "    // Now parse the args again, looking for everything else.\n",
+   "#ifdef TARGET_OS_3DS\n    lib3ds_boot_mark(\"main: before parse_args 2\");\n#endif\n    // Now parse the args again, looking for everything else.\n",
+   "main: before parse_args 2")
+
 # --------------------------------------------------------------- crash.cc
 rw("crash.cc",
    "#ifndef TARGET_OS_WINDOWS\n# include <cerrno>\n# include <sys/wait.h>\n#endif",
