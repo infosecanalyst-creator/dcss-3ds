@@ -2394,10 +2394,26 @@ time_t lib3ds_romfs_mtime()
 
 void enter_headless_mode() { headless = true; }
 
+// Boot trace: one line per startup step in sdmc:/3ds/crawl/boot.log, to see how far a launch gets
+// (an emulator that exits in two seconds leaves no other trace).
+static void boot_mark(const char *what)
+{
+    mkdir("sdmc:/3ds", 0777);
+    mkdir("sdmc:/3ds/crawl", 0777);
+    if (FILE *f = fopen("sdmc:/3ds/crawl/boot.log", "a"))
+    {
+        fprintf(f, "%s\n", what);
+        fclose(f);
+    }
+}
+static struct BootMarkStatic { BootMarkStatic() { boot_mark("static init (before main)"); } } g_boot_mark_static;
+
 void lib3ds_early_init()
 {
+    boot_mark("early_init: start");
     gfxInitDefault();
     gfx_inited = true;
+    boot_mark("early_init: gfxInitDefault ok");
     // Debug console on the bottom screen so startup errors and the first-run
     // database / level-cache progress are visible; console_startup() takes
     // the screens over later.
@@ -2410,6 +2426,7 @@ void lib3ds_early_init()
     if (R_FAILED(rc))
         printf("romfsInit failed: %08X\n", (unsigned)rc);
 
+    boot_mark(R_FAILED(rc) ? "early_init: romfsInit FAILED" : "early_init: romfsInit ok");
     mkdir("sdmc:/3ds", 0777);
     mkdir("sdmc:/3ds/crawl", 0777);
     mkdir("sdmc:/3ds/crawl/saves", 0777);
@@ -2421,6 +2438,7 @@ void lib3ds_early_init()
         sqlite3_vfs_register(nolock, 1);
 
     osSetSpeedupEnable(true);
+    boot_mark("early_init: done");
 }
 
 // Called from end() on a fatal exit: show the reason and wait.
@@ -2517,6 +2535,7 @@ void console_startup()
 {
     if (inited)
         return;
+    boot_mark("console_startup: start");
     if (!gfx_inited)
     {
         gfxInitDefault();
@@ -2563,6 +2582,7 @@ void console_startup()
     sound_init();
 #endif
     g_manual.load(kManualText, "sdmc:/3ds/crawl/manual.txt", "Crawl for 3DS: manual");
+    boot_mark("console_startup: sound+manual ok");
     build_keyboard();
     bottom_dirty = top_dirty = true;
 
