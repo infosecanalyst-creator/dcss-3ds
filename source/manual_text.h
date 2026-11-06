@@ -62,7 +62,8 @@ Buttons run down both edges, outside your line of sight, so they never hide a mo
 | Y | pick up |
 | L | zoom the dungeon map out |
 | R | zoom the dungeon map in (three levels; remembered) |
-| ZL | inventory (press again to close) |
+| C-Stick up | inventory (press again to close) |
+| ZL | swap the screens (stylus off while swapped) |
 | ZR | cast a spell (press again to close) |
 | Select | touch keyboard |
 | Start | this manual |
@@ -143,7 +144,7 @@ Choose Tutorial for Dungeon Crawl on the main menu for guided lessons.
 Your health regenerates slowly. Resting is free unless a monster is near. Potions of heal wounds are your emergency button.
 
 # Items
-- items (or ZL) shows your inventory. Tap an item: its actions (Read, Drink, Wear, Drop...) appear as buttons on the touch screen. Tap one.
+- items (or C-Stick up) shows your inventory. Tap an item: its actions (Read, Drink, Wear, Drop...) appear as buttons on the touch screen. Tap one.
 - Reading a scroll: items, tap the scroll, tap Read. Drinking a potion is the same, with Drink.
 - Unknown potions and scrolls are identified by using them. Try them when you are safe and at full health.
 - Better armour and weapons are worth carrying; Crawl tells you their bonuses when you inspect them.

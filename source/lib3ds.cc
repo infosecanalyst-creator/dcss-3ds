@@ -276,6 +276,43 @@ static void cv_blit(const Canvas &c, gfxScreen_t screen, gfx3dSide_t side)
     }
 }
 
+// ZL swaps the screens: the game goes up on the top screen (centred 1:1, 320 of 400 wide) and
+// the dashboard comes down at 0.8 so all of it shows. The stylus is off while swapped.
+static bool g_swapped = false;
+static uint8_t sw_top_px[400 * 240 * 3], sw_bot_px[320 * 240 * 3];
+static Canvas sw_top = { 400, 240, sw_top_px };
+static Canvas sw_bot = { 320, 240, sw_bot_px };
+
+// Blit one canvas to its screen (under a swap, the other one), flush and flip that screen.
+static void cv_present(const Canvas &c)
+{
+    const bool is_top = (&c == &top_cv);
+    if (!g_swapped)
+    {
+        if (is_top) { cv_blit(top_cv, GFX_TOP, GFX_LEFT); cv_blit(top_cv, GFX_TOP, GFX_RIGHT); }
+        else cv_blit(bot_cv, GFX_BOTTOM, GFX_LEFT);
+    }
+    else if (!is_top)
+    {
+        memset(sw_top_px, 0, sizeof sw_top_px);
+        for (int y = 0; y < 240; ++y)
+            memcpy(sw_top_px + (y * 400 + 40) * 3, bot_cv.px + y * 320 * 3, 320 * 3);
+        cv_blit(sw_top, GFX_TOP, GFX_LEFT);
+        cv_blit(sw_top, GFX_TOP, GFX_RIGHT);
+    }
+    else
+    {
+        memset(sw_bot_px, 0, sizeof sw_bot_px);
+        for (int y = 0; y < 192; ++y)
+            for (int x = 0; x < 320; ++x)
+                memcpy(sw_bot_px + ((y + 24) * 320 + x) * 3, top_cv.px + ((y * 5 / 4) * 400 + (x * 5 / 4)) * 3, 3);
+        cv_blit(sw_bot, GFX_BOTTOM, GFX_LEFT);
+    }
+    gfxFlushBuffers();
+    const bool to_top = g_swapped ? !is_top : is_top;
+    gfxScreenSwapBuffers(to_top ? GFX_TOP : GFX_BOTTOM, to_top);
+}
+
 // Fonts ----------------------------------------------------------------------
 
 struct Font
@@ -1788,12 +1825,10 @@ static void draw_bottom()
         draw_text_mode_bottom();
     else
         draw_play_bottom();
-    cv_blit(bot_cv, GFX_BOTTOM, GFX_LEFT);
-    gfxFlushBuffers();
     // double-buffered: we drew into the hidden buffer, show it at the next
     // VBlank (drawing into the visible one flickered). Presenting also makes
     // the GPU pick up the BGR8 format the startup console had changed.
-    gfxScreenSwapBuffers(GFX_BOTTOM, false);
+    cv_present(bot_cv);
     bottom_dirty = false;
 }
 
@@ -1823,10 +1858,7 @@ static void draw_top()
     else
         draw_play_top();
     // the dashboard is flat: same image for both eyes
-    cv_blit(top_cv, GFX_TOP, GFX_LEFT);
-    cv_blit(top_cv, GFX_TOP, GFX_RIGHT);
-    gfxFlushBuffers();
-    gfxScreenSwapBuffers(GFX_TOP, true);
+    cv_present(top_cv);
     top_dirty = false;
 }
 
@@ -1857,7 +1889,7 @@ static const keymap_3ds button_map[] =
     { KEY_Y,      'g',      ' '      },   // pick up / next page
     { KEY_L,      0,        '<'      },   // map zoom out / page up
     { KEY_R,      0,        '>'      },   // map zoom in / page down
-    { KEY_ZL,     'i',      ESCAPE   },   // inventory (press again to close)
+    { KEY_CSTICK_UP, 'i',   ESCAPE   },   // inventory (press again to close); ZL swaps the screens
     { KEY_ZR,     'z',      ESCAPE   },   // cast (press again to close)
 };
 
@@ -1945,12 +1977,8 @@ static void draw_manual()
     manual3ds::Canvas b = { bot_cv.w, bot_cv.h, bot_cv.px };
     g_manual.draw_top(t);
     g_manual.draw_bottom(b);
-    cv_blit(top_cv, GFX_TOP, GFX_LEFT);
-    cv_blit(top_cv, GFX_TOP, GFX_RIGHT);
-    cv_blit(bot_cv, GFX_BOTTOM, GFX_LEFT);
-    gfxFlushBuffers();
-    gfxScreenSwapBuffers(GFX_TOP, true);
-    gfxScreenSwapBuffers(GFX_BOTTOM, false);
+    cv_present(top_cv);
+    cv_present(bot_cv);
 }
 
 static bool manual_input(u32 down, u32 rep)
@@ -1998,8 +2026,19 @@ static void poll_input()
 {
     auto_keyboard();
     hidScanInput();
-    const u32 down = hidKeysDown();
+    u32 down = hidKeysDown();
     const u32 rep  = hidKeysDownRepeat();
+
+    if (down & KEY_ZL)
+    {
+        g_swapped = !g_swapped;
+        top_dirty = bottom_dirty = true;
+        if (g_manual.active())
+            draw_manual();
+    }
+    down &= ~KEY_ZL;
+    if (g_swapped)
+        down &= ~KEY_TOUCH;            // the touchscreen is the dashboard while swapped
 
     if (g_manual.active())
     {

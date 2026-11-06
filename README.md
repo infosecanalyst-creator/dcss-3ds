@@ -103,7 +103,9 @@ from crawl's `rltiles` sheets).
 | X | autoexplore | `?` help |
 | Y | pick up | next page |
 | L / R | wait a turn / rest | page up / down |
-| ZL / ZR | inventory / cast | |
+| ZL | swap the screens (the stylus is off while swapped) | |
+| ZR | cast | |
+| C-Stick up | inventory | |
 | Select | touch keyboard | touch keyboard |
 | HOME | crawl saves and exits | |
 
