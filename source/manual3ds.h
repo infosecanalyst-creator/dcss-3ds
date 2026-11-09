@@ -188,6 +188,8 @@ public:
     // Optional host toggle button on the bottom screen (e.g. "Left hand: off").
     // Empty label = no button. take_toggle() reports one tap.
     void set_toggle(const std::string &label) { m_toggle = label; m_dirty = true; }
+    // Footer hint on the top screen (empty = the default). Lets a port show left-handed labels.
+    void set_footer(const std::string &f) { if (f != m_footer) { m_footer = f; m_dirty = true; } }
     bool take_toggle() { const bool t = m_toggle_hit; m_toggle_hit = false; return t; }
 
     bool update(const Input &in)
@@ -324,7 +326,7 @@ public:
             fill(cv, bx, ty, 3, th, 150, 150, 200);
         }
         fill(cv, 0, cv.h - FOOT, cv.w, FOOT, 24, 24, 38);
-        text(cv, 8, cv.h - FOOT + 2, "Stick: scroll   D-Pad: section   B: close", C_DIM);
+        text(cv, 8, cv.h - FOOT + 2, m_footer.empty() ? "Stick: scroll   D-Pad: section   B: close" : m_footer.c_str(), C_DIM);
         m_dirty = false;
     }
 
@@ -373,7 +375,7 @@ private:
     std::vector<Btn> m_buttons;
     int m_sec = 0, m_scroll = 0, m_layout_sec = -1, m_layout_w = 0, m_cpad_acc = 0;
     bool m_active = false, m_dirty = true, m_click = false, m_toggle_hit = false;
-    std::string m_toggle;
+    std::string m_toggle, m_footer;
     int m_press_btn = -3, m_press_frames = 0;   // touch feedback
 
     int m_view_h = 240;          // height of the last top canvas drawn

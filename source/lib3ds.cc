@@ -1563,6 +1563,7 @@ static void build_text_mode_buttons()
         buttons.push_back({ i * bw, by, bw, 30, bar[i].l, bar[i].k, bar[i].s, 0 });
 }
 
+static bool lefty_on();
 static void draw_text_mode_bottom()
 {
     Canvas &cv = bot_cv;
@@ -1590,7 +1591,7 @@ static void draw_text_mode_bottom()
     {
         draw_text(cv, F_TEXT, 8, 8, "Use the buttons below, or Keys", C_DIM);
         draw_text(cv, F_TEXT, 8, 24, "for the touch keyboard.", C_DIM);
-        draw_text(cv, F_TEXT, 8, 48, "A = Enter   B = Esc   D-pad = move", C_DIM);
+        draw_text(cv, F_TEXT, 8, 48, lefty_on() ? "D-Right = Enter   D-Down = Esc   A/B/X/Y = move" : "A = Enter   B = Esc   D-pad = move", C_DIM);
         draw_text(cv, F_TEXT, 8, 64, "L / R = page up / down", C_DIM);
     }
     for (int i = 0; i < n && i < rows * cols; ++i)
@@ -2052,6 +2053,7 @@ static bool manual_input(u32 down, u32 rep)
     hidCircleRead(&cp);
     mi.cpad_y = cp.dy;
     g_manual.set_toggle(lefty_on() ? "Left hand: on" : "Left hand: off");
+    g_manual.set_footer(lefty_on() ? "Stick: scroll   A/B/X/Y: section   D-Down: close" : "");
     const bool was_dirty = g_manual.dirty();
     const bool open = g_manual.update(mi);
     if (g_manual.take_toggle())
