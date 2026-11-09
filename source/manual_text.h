@@ -72,6 +72,9 @@ Buttons run down both edges, outside your line of sight, so they never hide a mo
 ## On questions and menus
 A answers Yes and continues past --more--. B answers No or backs out.
 
+## Left-handed play
+At the bottom of the manual's touch screen, "Left hand" swaps the D-pad with the A, B, X and Y buttons: Y and Up, A and Right, B and Down, X and Left. It is remembered, and applies to this manual too.
+
 # Menus and typing
 Menus (inventory, spells, character creation, shops) appear on the top screen. The touch screen lists every choice as a big button: tap one to pick it.
 

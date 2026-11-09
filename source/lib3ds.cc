@@ -1981,6 +1981,51 @@ static void draw_manual()
     cv_present(bot_cv);
 }
 
+// Left-handed play: the D-pad and the face buttons swap places
+// (Y<->Up, A<->Right, B<->Down, X<->Left). A marker file keeps it.
+static bool g_lefty = false, g_lefty_loaded = false;
+static const char *kLeftyFile = "sdmc:/3ds/crawl/.lefty";
+static bool lefty_on()
+{
+    if (!g_lefty_loaded)
+    {
+        if (FILE *f = fopen(kLeftyFile, "rb"))
+        {
+            fclose(f);
+            g_lefty = true;
+        }
+        g_lefty_loaded = true;
+    }
+    return g_lefty;
+}
+static void set_lefty(bool on)
+{
+    g_lefty = on;
+    g_lefty_loaded = true;
+    if (on)
+    {
+        if (FILE *f = fopen(kLeftyFile, "wb"))
+            fclose(f);
+    }
+    else
+        remove(kLeftyFile);
+}
+static u32 lefty_remap(u32 m)
+{
+    static const u32 pr[4][2] = { { KEY_Y, KEY_DUP }, { KEY_A, KEY_DRIGHT },
+                                  { KEY_B, KEY_DDOWN }, { KEY_X, KEY_DLEFT } };
+    if (!lefty_on())
+        return m;
+    u32 o = m;
+    for (int i = 0; i < 4; ++i)
+    {
+        o &= ~(pr[i][0] | pr[i][1]);
+        if (m & pr[i][0]) o |= pr[i][1];
+        if (m & pr[i][1]) o |= pr[i][0];
+    }
+    return o;
+}
+
 static bool manual_input(u32 down, u32 rep)
 {
     manual3ds::Input mi;
@@ -2006,8 +2051,11 @@ static bool manual_input(u32 down, u32 rep)
     circlePosition cp;
     hidCircleRead(&cp);
     mi.cpad_y = cp.dy;
+    g_manual.set_toggle(lefty_on() ? "Left hand: on" : "Left hand: off");
     const bool was_dirty = g_manual.dirty();
     const bool open = g_manual.update(mi);
+    if (g_manual.take_toggle())
+        set_lefty(!lefty_on());
 #ifdef SOUND_PLAY_3DS
     if (g_manual.take_click() && Options.sounds_on)
         lib3ds_play_sound("romfs:/dat/sounds/x-click.pcm");
@@ -2026,8 +2074,8 @@ static void poll_input()
 {
     auto_keyboard();
     hidScanInput();
-    u32 down = hidKeysDown();
-    const u32 rep  = hidKeysDownRepeat();
+    u32 down = lefty_remap(hidKeysDown());
+    const u32 rep  = lefty_remap(hidKeysDownRepeat());
 
     if (down & KEY_ZL)
     {

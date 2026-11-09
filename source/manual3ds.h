@@ -185,6 +185,10 @@ public:
     // Feed one frame of input. Returns true while the manual stays open.
     // true once per tap or section change: play the UI click
     bool take_click() { const bool c = m_click; m_click = false; return c; }
+    // Optional host toggle button on the bottom screen (e.g. "Left hand: off").
+    // Empty label = no button. take_toggle() reports one tap.
+    void set_toggle(const std::string &label) { m_toggle = label; m_dirty = true; }
+    bool take_toggle() { const bool t = m_toggle_hit; m_toggle_hit = false; return t; }
 
     bool update(const Input &in)
     {
@@ -244,6 +248,8 @@ public:
                 m_click = true;
                 m_dirty = true;
             }
+            if (b == -3)
+                m_toggle_hit = true;
             if (b == -2)
             {
                 m_active = false;
@@ -332,7 +338,7 @@ public:
         for (size_t i = 0; i < m_buttons.size(); ++i)
         {
             const Btn &b = m_buttons[i];
-            const bool sel = b.section == m_sec, close = b.section == -2;
+            const bool sel = b.section == m_sec, close = b.section == -2, tog = b.section == -3;
             const bool down = m_press_frames > 0 && b.section == m_press_btn;
             fill(cv, b.x, b.y, b.w, b.h, close ? 120 : sel ? 70 : 40, close ? 40 : sel ? 70 : 42,
                  close ? 40 : sel ? 120 : 62);
@@ -348,7 +354,7 @@ public:
                 fill(cv, b.x, b.y, b.w, 1, 250, 230, 120);
                 fill(cv, b.x, b.y + b.h - 1, b.w, 1, 250, 230, 120);
             }
-            const std::string &t = close ? std::string("Close") : m_sections[b.section].title;
+            const std::string &t = close ? std::string("Close") : tog ? m_toggle : m_sections[b.section].title;
             const int tw = std::min(ulen(t) * 6, b.w - 8);
             const int push = down ? 1 : 0;
             text(cv, b.x + (b.w - tw) / 2 + push, b.y + (b.h - 13) / 2 + push, t, sel ? C_SEL : C_TXT, sel || close, b.x + b.w - 4 + push);
@@ -366,7 +372,8 @@ private:
     std::vector<detail::Line> m_lines;
     std::vector<Btn> m_buttons;
     int m_sec = 0, m_scroll = 0, m_layout_sec = -1, m_layout_w = 0, m_cpad_acc = 0;
-    bool m_active = false, m_dirty = true, m_click = false;
+    bool m_active = false, m_dirty = true, m_click = false, m_toggle_hit = false;
+    std::string m_toggle;
     int m_press_btn = -3, m_press_frames = 0;   // touch feedback
 
     int m_view_h = 240;          // height of the last top canvas drawn
@@ -514,7 +521,13 @@ private:
             const int c = i / rows, r = i % rows;
             m_buttons.push_back({ 4 + c * (bw + 4), top + r * bh, bw, bh - 3, i });
         }
-        m_buttons.push_back({ w / 2 - 60, h - 30, 120, 26, -2 });
+        if (m_toggle.empty())
+            m_buttons.push_back({ w / 2 - 60, h - 30, 120, 26, -2 });
+        else
+        {
+            m_buttons.push_back({ 4, h - 30, w - 4 - 4 - 4 - 90, 26, -3 });   // toggle, left
+            m_buttons.push_back({ w - 4 - 90, h - 30, 90, 26, -2 });          // Close, right
+        }
     }
 
     int button_at(int x, int y) const
