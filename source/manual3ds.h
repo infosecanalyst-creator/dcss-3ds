@@ -178,7 +178,7 @@ public:
     }
 
     bool active() const { return m_active; }
-    void open() { m_active = true; m_dirty = true; }
+    void open() { m_active = true; m_dirty = true; m_bar_focus = 0; }
     void close() { m_active = false; }
     bool dirty() const { return m_dirty; }
 
@@ -208,22 +208,44 @@ public:
         // C-Stick scrolls the text
         if (in.down & K_SCROLL_UP)   scroll(-1);
         if (in.down & K_SCROLL_DOWN) scroll(+1);
-        // D-Pad moves around the section buttons (same grid as build_buttons)
+        // D-Pad moves around the section buttons (same grid as build_buttons); down from the
+        // bottom row reaches the button row (toggle / Close), A presses the one highlighted
         if (nsec && (in.down & (K_UP | K_DOWN | K_LEFT | K_RIGHT)))
         {
             const int cols = nsec > 6 ? 2 : 1, rows = (nsec + cols - 1) / cols;
             const int c = m_sec / rows, r = m_sec % rows;
-            int s = m_sec;
-            if ((in.down & K_UP) && r > 0)                      s = m_sec - 1;
-            if ((in.down & K_DOWN) && r < rows - 1 && m_sec + 1 < nsec) s = m_sec + 1;
-            if ((in.down & K_LEFT) && c > 0)                    s = m_sec - rows;
-            if ((in.down & K_RIGHT) && c < cols - 1)            s = std::min(m_sec + rows, nsec - 1);
-            if (s != m_sec)
+            const int nbar = m_toggle.empty() ? 1 : 2;   // buttons in the bottom row
+            if (m_bar_focus)
             {
-                m_sec = s;
-                m_scroll = 0;
-                m_dirty = true;
+                if (in.down & K_UP)                          { m_bar_focus = 0; m_dirty = true; }
+                if ((in.down & K_LEFT) && m_bar_focus > 1)   { --m_bar_focus; m_dirty = true; }
+                if ((in.down & K_RIGHT) && m_bar_focus < nbar) { ++m_bar_focus; m_dirty = true; }
             }
+            else
+            {
+                int s = m_sec;
+                if ((in.down & K_UP) && r > 0)                      s = m_sec - 1;
+                if (in.down & K_DOWN)
+                {
+                    if (r < rows - 1 && m_sec + 1 < nsec) s = m_sec + 1;
+                    else { m_bar_focus = (nbar == 2 && c > 0) ? 2 : 1; m_dirty = true; }
+                }
+                if ((in.down & K_LEFT) && c > 0)                    s = m_sec - rows;
+                if ((in.down & K_RIGHT) && c < cols - 1)            s = std::min(m_sec + rows, nsec - 1);
+                if (s != m_sec)
+                {
+                    m_sec = s;
+                    m_scroll = 0;
+                    m_dirty = true;
+                }
+            }
+        }
+        if ((in.down & K_A) && m_bar_focus)
+        {
+            const int id = (m_toggle.empty() || m_bar_focus == 2) ? -2 : -3;
+            m_press_btn = id; m_press_frames = 7; m_click = true; m_dirty = true;
+            if (id == -3) m_toggle_hit = true;
+            else { m_bar_focus = 0; m_active = false; return false; }
         }
         if (in.down & (K_L | K_R) && nsec)
         {
@@ -335,15 +357,18 @@ public:
         using namespace detail;
         static const uint8_t C_TXT[3] = { 235, 235, 240 }, C_SEL[3] = { 255, 240, 160 };
         fill(cv, 0, 0, cv.w, cv.h, 18, 18, 28);
-        text(cv, 8, 4, m_title, C_SEL, true);
         build_buttons(cv.w, cv.h);
+        if (m_show_title) text(cv, 8, 4, m_title, C_SEL, true);
         for (size_t i = 0; i < m_buttons.size(); ++i)
         {
             const Btn &b = m_buttons[i];
-            const bool sel = b.section == m_sec, close = b.section == -2, tog = b.section == -3;
+            const bool close = b.section == -2, tog = b.section == -3;
+            const bool barSel = m_bar_focus && ((tog && m_bar_focus == 1) || (close && (m_toggle.empty() || m_bar_focus == 2)));
+            const bool sel = m_bar_focus ? barSel : b.section == m_sec;
             const bool down = m_press_frames > 0 && b.section == m_press_btn;
-            fill(cv, b.x, b.y, b.w, b.h, close ? 120 : sel ? 70 : 40, close ? 40 : sel ? 70 : 42,
-                 close ? 40 : sel ? 120 : 62);
+            const bool cur = b.section == m_sec;   // the section being read keeps its colour
+            fill(cv, b.x, b.y, b.w, b.h, close ? 120 : cur ? 70 : 40, close ? 40 : cur ? 70 : 42,
+                 close ? 40 : cur ? 120 : 62);
             if (down)
             {
                 // pushed in: brighter face, dark inner edge at top/left
@@ -376,6 +401,8 @@ private:
     int m_sec = 0, m_scroll = 0, m_layout_sec = -1, m_layout_w = 0, m_cpad_acc = 0;
     bool m_active = false, m_dirty = true, m_click = false, m_toggle_hit = false;
     std::string m_toggle, m_footer;
+    bool m_show_title = true;
+    int m_bar_focus = 0;   // 0: sections; 1, 2: the bottom row (toggle, Close) has the D-Pad highlight
     int m_press_btn = -3, m_press_frames = 0;   // touch feedback
 
     int m_view_h = 240;          // height of the last top canvas drawn
@@ -509,26 +536,35 @@ private:
         scroll(0);
     }
 
+    // UI rule 11: targets at least 24 px tall, at least 4 px apart, at least 6 px from the screen
+    // edges. When the section grid needs the room, the bottom-screen title is left off (the top
+    // screen already names the section).
     void build_buttons(int w, int h)
     {
         m_buttons.clear();
         const int n = (int)m_sections.size();
         const int cols = n > 6 ? 2 : 1;
         const int rows = (n + cols - 1) / cols;
-        const int top = 22, bottom = h - 34;
-        const int bh = std::max(18, std::min(34, (bottom - top - 4) / std::max(1, rows)));
-        const int bw = (w - 8 - (cols - 1) * 4) / cols;
+        const int edge = 6, gap = 4, minh = 24, maxh = 34, barh = 26;
+        const int bar_y = h - edge - 4 - barh;          // Close / toggle row
+        const int bottom = bar_y - gap - 2;             // the grid ends above it
+        int top = 22;
+        m_show_title = true;
+        if (rows * minh + (rows - 1) * gap > bottom - top) { top = edge; m_show_title = false; }
+        const int bh = std::max(minh, std::min(maxh, (bottom - top + gap) / std::max(1, rows) - gap));
+        const int bw = (w - 2 * edge - (cols - 1) * gap) / cols;
         for (int i = 0; i < n; ++i)
         {
             const int c = i / rows, r = i % rows;
-            m_buttons.push_back({ 4 + c * (bw + 4), top + r * bh, bw, bh - 3, i });
+            m_buttons.push_back({ edge + c * (bw + gap), top + r * (bh + gap), bw, bh, i });
         }
         if (m_toggle.empty())
-            m_buttons.push_back({ w / 2 - 60, h - 30, 120, 26, -2 });
+            m_buttons.push_back({ w / 2 - 60, bar_y, 120, barh, -2 });
         else
         {
-            m_buttons.push_back({ 4, h - 30, w - 4 - 4 - 4 - 90, 26, -3 });   // toggle, left
-            m_buttons.push_back({ w - 4 - 90, h - 30, 90, 26, -2 });          // Close, right
+            const int cw = 90;
+            m_buttons.push_back({ edge, bar_y, w - 2 * edge - gap - cw, barh, -3 });   // toggle, left
+            m_buttons.push_back({ w - edge - cw, bar_y, cw, barh, -2 });               // Close, right
         }
     }
 
