@@ -932,7 +932,8 @@ static bool have_view = false;
 static const int TS = 16;               // tile pixels
 static const int MAP_COLS = 20, MAP_ROWS = 15;
 static const int MAP_CC = 10, MAP_CR = 7; // centre cell (the player)
-static const int BTN_W = 32;            // edge button columns
+static const int BTN_W = 36;            // edge button columns (rule 11: 6 px from the edges, 4 px apart)
+static const int BTN_EDGE = 6, BTN_H = 29, BTN_STEP = 33;
 
 // Map zoom (L = out, R = in): tiles are drawn at 16 px and scaled up.
 static const int kZoomTS[3] = { 16, 24, 32 };
@@ -1008,11 +1009,12 @@ static void build_play_buttons()
         { "keys", 0, 0, BS_KEYBOARD },
     };
 #endif
-    const int n = 7, bh = 240 / n;
+    const int n = 7;   // 7 x 29 px, 4 px apart, y 6..233
     for (int i = 0; i < n; ++i)
     {
-        buttons.push_back({ 0, i * bh, BTN_W, bh, left[i].label, left[i].key, left[i].special, left[i].tile });
-        buttons.push_back({ 320 - BTN_W, i * bh, BTN_W, bh, right[i].label, right[i].key, right[i].special, right[i].tile });
+        const int y = BTN_EDGE + i * BTN_STEP;
+        buttons.push_back({ BTN_EDGE, y, BTN_W, BTN_H, left[i].label, left[i].key, left[i].special, left[i].tile });
+        buttons.push_back({ 320 - BTN_EDGE - BTN_W, y, BTN_W, BTN_H, right[i].label, right[i].key, right[i].special, right[i].tile });
     }
 }
 
@@ -1034,9 +1036,9 @@ static void draw_button(Canvas &cv, const button &b, bool pressed, bool transluc
     const int push = pressed ? 1 : 0;
     if (b.tile)
     {
-        blit_tile(cv, b.tile, b.x + (b.w - 16) / 2 + push, b.y + 3 + push);
+        blit_tile(cv, b.tile, b.x + (b.w - 16) / 2 + push, b.y + 2 + push);
         const int lw = text_width(F_SMALL, b.label);
-        draw_text(cv, F_SMALL, b.x + (b.w - lw) / 2 + push, b.y + b.h - 10 + push, b.label, C_TEXT);
+        draw_text(cv, F_SMALL, b.x + (b.w - lw) / 2 + push, b.y + b.h - 9 + push, b.label, C_TEXT);
     }
     else
     {
@@ -1575,13 +1577,13 @@ void lib3ds_set_actions(const std::vector<std::pair<std::string, int>> &actions)
 static void build_text_mode_buttons()
 {
     buttons.clear();
-    const int by = 240 - 30, bw = 64;
+    const int by = 240 - 6 - 30, bw = 58;   // rule 11
     const struct { const char *l; int k; int s; } bar[] = {
         { "Esc", ESCAPE, 0 }, { "Enter", CK_ENTER, 0 }, { "Pg Up", '<', 0 },
         { "Pg Dn", '>', 0 }, { "Keys", 0, BS_KEYBOARD },
     };
     for (int i = 0; i < 5; ++i)
-        buttons.push_back({ i * bw, by, bw, 30, bar[i].l, bar[i].k, bar[i].s, 0 });
+        buttons.push_back({ 6 + i * (bw + 4), by, bw, 30, bar[i].l, bar[i].k, bar[i].s, 0 });
 }
 
 static bool lefty_on();
@@ -1596,11 +1598,11 @@ static void draw_text_mode_bottom()
     const int rows = (n + cols - 1) / cols;
     // action buttons (item descriptions) sit right above the bar
     const int na = (int)g_actions.size(), acols = 3, arows = (na + acols - 1) / acols;
-    const int abh = 30, agap = 3, alimit = 240 - 30 - (na ? arows * (abh + agap) + 2 : 0);
+    const int abh = 28, agap = 4, alimit = 240 - 6 - 30 - (na ? arows * (abh + agap) : 0);
     for (int i = 0; i < na; ++i)
     {
-        const int aw = (320 - 4 - agap * (acols - 1)) / acols;
-        const int ax = 2 + (i % acols) * (aw + agap), ay = alimit + 2 + (i / acols) * (abh + agap);
+        const int aw = (320 - 12 - agap * (acols - 1)) / acols;
+        const int ax = 6 + (i % acols) * (aw + agap), ay = alimit + (i / acols) * (abh + agap);
         buttons.push_back({ ax, ay, aw, abh, g_actions[i].first.c_str(), g_actions[i].second, 0, 0 });
     }
     const int nbar = 5 + na;
@@ -1946,6 +1948,13 @@ static int button_at(int px, int py)
     {
         const button &b = buttons[i];
         if (px >= b.x && px < b.x + b.w && py >= b.y && py < b.y + b.h)
+            return i;
+    }
+    // a tap in the 4-px gap or the 6-px screen margin goes to the button beside it
+    for (int i = (int)buttons.size() - 1; i >= 0; --i)
+    {
+        const button &b = buttons[i];
+        if (px >= b.x - 3 && px < b.x + b.w + 3 && py >= b.y - 3 && py < b.y + b.h + 3)
             return i;
     }
     return -1;
