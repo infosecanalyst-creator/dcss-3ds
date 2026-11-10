@@ -1594,8 +1594,7 @@ static void draw_text_mode_bottom()
     cur_entries = find_menu_entries();
     build_text_mode_buttons();
     const int n = (int)cur_entries.size();
-    const int cols = n <= 10 ? 1 : n <= 20 ? 2 : 3;
-    const int rows = (n + cols - 1) / cols;
+    int cols = 1, rows = n;   // set below, once the action buttons' height is known
     // action buttons (item descriptions) sit right above the bar
     const int na = (int)g_actions.size(), acols = 3, arows = (na + acols - 1) / acols;
     const int abh = 28, agap = 4, alimit = 240 - 6 - 30 - (na ? arows * (abh + agap) : 0);
@@ -1606,8 +1605,12 @@ static void draw_text_mode_bottom()
         buttons.push_back({ ax, ay, aw, abh, g_actions[i].first.c_str(), g_actions[i].second, 0, 0 });
     }
     const int nbar = 5 + na;
-    const int rowh = std::max(14, std::min(24, (alimit - 2) / std::max(1, rows)));
-    const int colw = 320 / cols;
+    // rule 11: entry rows are 24-px buttons, 4 px apart, 6 px from the edges; a long menu
+    // uses more columns, and what still doesn't fit is reached with Pg Dn (or the keyboard)
+    const int rowh = 28, maxrows = std::max(1, (alimit - 4 - 6 + 4) / rowh);
+    cols = n <= maxrows ? 1 : n <= 2 * maxrows ? 2 : 3;
+    rows = (n + cols - 1) / cols;
+    const int colw = (308 + 4) / cols;
     if (cur_entries.empty() && na)
         draw_text(cv, F_TEXT, 8, 8, "Tap an action:", C_DIM);
     else if (cur_entries.empty())
@@ -1621,18 +1624,18 @@ static void draw_text_mode_bottom()
     {
         const menu_entry &e = cur_entries[i];
         const int cc = i / rows, rr = i % rows;
-        const int x = cc * colw + 2, y = 2 + rr * rowh;
-        if (y + rowh > alimit)
+        const int x = 6 + cc * colw, y = 6 + rr * rowh;
+        if (y + rowh - 4 > alimit - 4)
             continue;
         // dim entries crawl draws in dark grey (unavailable choices)
         const int tfg = grid[e.row][e.tcol].fg;
         const bool dim = tfg == DARKGREY;
-        cv_fill(cv, x, y, colw - 4, rowh - 2, dim ? 22 : 30, dim ? 22 : 32, dim ? 30 : 46);
+        cv_fill(cv, x, y, colw - 4, rowh - 4, dim ? 22 : 30, dim ? 22 : 32, dim ? 30 : 46);
         char k[2] = { (char)e.key, 0 };
-        cv_fill(cv, x + 2, y + (rowh - 2 - 14) / 2, 12, 14, 70, 70, 110);
-        draw_text(cv, F_BOLD, x + 5, y + (rowh - 2 - 13) / 2, k, C_GOLD);
+        cv_fill(cv, x + 2, y + (rowh - 4 - 14) / 2, 12, 14, 70, 70, 110);
+        draw_text(cv, F_BOLD, x + 5, y + (rowh - 4 - 13) / 2, k, C_GOLD);
         int px = x + 17;
-        const int ty = y + (rowh - 2 - 13) / 2;
+        const int ty = y + (rowh - 4 - 13) / 2;
         for (int gx = e.tcol; gx < e.tend && px + F_TEXT.w <= x + colw - 4; ++gx)
         {
             const cell_t &c = grid[e.row][gx];
@@ -1640,7 +1643,7 @@ static void draw_text_mode_bottom()
                 draw_char(cv, F_TEXT, px, ty, c.glyph, pal(c.fg == BLACK ? LIGHTGREY : c.fg), nullptr);
             px += F_TEXT.w;
         }
-        buttons.push_back({ x, y, colw - 4, rowh - 2, "", e.key, 0, 0 });
+        buttons.push_back({ x, y, colw - 4, rowh - 4, "", e.key, 0, 0 });
     }
     for (int i = 0; i < nbar; ++i)
         draw_button(cv, buttons[i], i == pressed_button, false);
@@ -1659,19 +1662,25 @@ struct softkey
     int special;
 };
 
-enum { SKEY_NONE = 0, SKEY_SHIFT = 1, SKEY_CTRL = 2, SKEY_LIGHT = 3, SKEY_CMD = 4 };
+enum { SKEY_NONE = 0, SKEY_SHIFT = 1, SKEY_CTRL = 2, SKEY_LIGHT = 3, SKEY_CMD = 4, SKEY_PAGE = 5, SKEY_CLOSE = 6 };
 
-static const int KEY_W = 26, KEY_H = 34;
-static const int KB_X0 = 4, KB_Y0 = 22;
+// Rule 11 layout: 7 rows of 28-px keys, 4 px apart, 6 px from the edges (y 6..226).
+// Row 0: Close, Bright, arrows. Rows 1-5: 10 keys of 27 px (or the quick-command
+// page). Row 6: Shft Ctrl Esc Tab Space Bksp Enter Cmds.
+static const int KEY_W = 27, KEY_H = 28, KEY_GAP = 4, KEY_STEP = KEY_H + KEY_GAP;
+static const int KB_X0 = 7, KB_Y0 = 6 + KEY_STEP;
 
-static const char *row1 = "1234567890-=";
-static const char *row1s = "!@#$%^&*()_+";
-static const char *row2 = "qwertyuiop[]";
-static const char *row2s = "QWERTYUIOP{}";
-static const char *row3 = "asdfghjkl;'\\";
-static const char *row3s = "ASDFGHJKL:\"|";
-static const char *row4 = "zxcvbnm,./`";
-static const char *row4s = "ZXCVBNM<>?~";
+static const char *row1 = "1234567890";
+static const char *row1s = "!@#$%^&*()";
+static const char *row2 = "qwertyuiop";
+static const char *row2s = "QWERTYUIOP";
+static const char *row3 = "asdfghjkl;";
+static const char *row3s = "ASDFGHJKL:";
+static const char *row4 = "zxcvbnm,./";
+static const char *row4s = "ZXCVBNM<>?";
+static const char *row5 = "-=[]\\'`";
+static const char *row5s = "_+{}|\"~";
+static bool kb_cmd_page = false;   // rows 1-5 show the quick commands instead of the letters
 
 static std::vector<softkey> softkeys;
 static bool sticky_shift = false;
@@ -1695,11 +1704,13 @@ static void ui_tap_feedback()
     press_until = osGetTime() + 120;
     bottom_dirty = true;
 }
+static void build_keyboard();
 static void ui_feedback_tick()
 {
     if (kb_close_pending && osGetTime() >= press_until)
     {
         kb_close_pending = false;
+        if (kb_cmd_page) { kb_cmd_page = false; build_keyboard(); }   // reopen on the letters
         keyboard_overlay = false;
         kb_dismissed = false;   // a prompt that follows (Search, Travel) may open it again
         kb_auto = false;
@@ -1725,7 +1736,7 @@ static void build_keyboard()
         for (int i = 0; keys[i]; ++i)
         {
             softkey k;
-            k.x = x0 + i * KEY_W; k.y = KB_Y0 + row * KEY_H;
+            k.x = x0 + i * (KEY_W + KEY_GAP); k.y = KB_Y0 + row * KEY_STEP;
             k.w = KEY_W; k.h = KEY_H;
             char *lab = labels[nlabel++ % 64];
             lab[0] = keys[i]; lab[1] = 0;
@@ -1734,37 +1745,44 @@ static void build_keyboard()
             softkeys.push_back(k);
         }
     };
-    add_row(0, row1, row1s, KB_X0);
-    add_row(1, row2, row2s, KB_X0);
-    add_row(2, row3, row3s, KB_X0);
-    add_row(3, row4, row4s, KB_X0 + KEY_W / 2);
+    if (!kb_cmd_page)
+    {
+        add_row(0, row1, row1s, KB_X0);
+        add_row(1, row2, row2s, KB_X0);
+        add_row(2, row3, row3s, KB_X0);
+        add_row(3, row4, row4s, KB_X0);
+        add_row(4, row5, row5s, KB_X0 + 3 * (KEY_W + KEY_GAP) / 2);
+    }
 
-    const int by = KB_Y0 + 4 * KEY_H;
+    const int by = KB_Y0 + 5 * KEY_STEP;   // 198
     const softkey bottom[] =
     {
-        { KB_X0,       by, 44, KEY_H, "Shft", 0,        0, SKEY_SHIFT },
-        { KB_X0 + 44,  by, 40, KEY_H, "Ctrl", 0,        0, SKEY_CTRL  },
-        { KB_X0 + 84,  by, 36, KEY_H, "Esc",  ESCAPE,   0, SKEY_NONE  },
-        { KB_X0 + 120, by, 36, KEY_H, "Tab",  CK_TAB,   0, SKEY_NONE  },
-        { KB_X0 + 156, by, 64, KEY_H, "Space",' ',      0, SKEY_NONE  },
-        { KB_X0 + 220, by, 40, KEY_H, "Bksp", CK_BKSP,  0, SKEY_NONE  },
-        { KB_X0 + 260, by, 52, KEY_H, "Enter",CK_ENTER, 0, SKEY_NONE  },
+        { 6,   by, 34, KEY_H, "Shft", 0,        0, SKEY_SHIFT },
+        { 44,  by, 34, KEY_H, "Ctrl", 0,        0, SKEY_CTRL  },
+        { 82,  by, 30, KEY_H, "Esc",  ESCAPE,   0, SKEY_NONE  },
+        { 116, by, 30, KEY_H, "Tab",  CK_TAB,   0, SKEY_NONE  },
+        { 150, by, 46, KEY_H, "Space",' ',      0, SKEY_NONE  },
+        { 200, by, 34, KEY_H, "Bksp", CK_BKSP,  0, SKEY_NONE  },
+        { 238, by, 38, KEY_H, "Enter",CK_ENTER, 0, SKEY_NONE  },
+        { 280, by, 34, KEY_H, kb_cmd_page ? "ABC" : "Cmds", 0, 0, SKEY_PAGE },
     };
     for (const softkey &k : bottom)
         softkeys.push_back(k);
-    // arrow keys in the top row (menus without hotkeys, history, cursor)
+    // top row: Close, brightness, arrow keys (menus without hotkeys, history, cursor)
+    softkeys.push_back({ 6, 6, 60, KEY_H, "Close", 0, 0, SKEY_CLOSE });
+    softkeys.push_back({ 70, 6, 84, KEY_H, "Bright", 0, 0, SKEY_LIGHT });
     const softkey arrows[] =
     {
-        { 196, 0, 30, 21, "\u2190", CK_LEFT,  0, SKEY_NONE },
-        { 226, 0, 30, 21, "\u2191", CK_UP,    0, SKEY_NONE },
-        { 256, 0, 30, 21, "\u2193", CK_DOWN,  0, SKEY_NONE },
-        { 286, 0, 30, 21, "\u2192", CK_RIGHT, 0, SKEY_NONE },
+        { 158, 6, 36, KEY_H, "\u2190", CK_LEFT,  0, SKEY_NONE },
+        { 198, 6, 36, KEY_H, "\u2191", CK_UP,    0, SKEY_NONE },
+        { 238, 6, 36, KEY_H, "\u2193", CK_DOWN,  0, SKEY_NONE },
+        { 278, 6, 36, KEY_H, "\u2192", CK_RIGHT, 0, SKEY_NONE },
     };
     for (const softkey &k : arrows)
         softkeys.push_back(k);
-    // screen brightness (label drawn with the current level)
-    softkeys.push_back({ 120, 0, 72, 21, "Bright", 0, 0, SKEY_LIGHT });
-    // quick commands under the keys: the commands without a play-screen
+    if (!kb_cmd_page)
+        return;
+    // the quick-command page (Cmds): the commands without a play-screen
     // button, one tap each (the keyboard closes after the tap)
     static const struct { const char *label; int key; } quick[12] =
     {
@@ -1773,9 +1791,9 @@ static void build_keyboard()
         { "Search", CONTROL('F') }, { "Religion", '^' }, { "Overview", CONTROL('O') },
         { "Mutation", 'A' }, { "Swap", '\'' }, { "Orders", 't' },
     };
-    const int qy = KB_Y0 + 5 * KEY_H + 2, qw = (320 - 2 * KB_X0) / 6, qh = (240 - qy) / 2;
+    const int qw = (308 - 2 * KEY_GAP) / 3, qh = (5 * KEY_STEP - KEY_GAP - 3 * KEY_GAP) / 4;   // 100 x 36
     for (int i = 0; i < 12; ++i)
-        softkeys.push_back({ KB_X0 + (i % 6) * qw, qy + (i / 6) * qh, qw, qh,
+        softkeys.push_back({ 6 + (i % 3) * (qw + KEY_GAP), KB_Y0 + (i / 3) * (qh + KEY_GAP), qw, qh,
                              quick[i].label, quick[i].key, 0, SKEY_CMD });
 }
 
@@ -1783,9 +1801,6 @@ static void draw_keyboard()
 {
     Canvas &cv = bot_cv;
     cv_fill(cv, 0, 0, 320, 240, 18, 18, 26);
-    char status[64];
-    snprintf(status, sizeof(status), "SELECT: close");
-    draw_text(cv, F_TEXT, 6, 4, status, C_DIM);
 
     for (size_t i = 0; i < softkeys.size(); ++i)
     {
@@ -1797,16 +1812,16 @@ static void draw_keyboard()
             kb[0] = 70, kb[1] = 120, kb[2] = 70;
         else if (k.special == SKEY_CMD)
             kb[0] = 40, kb[1] = 56, kb[2] = 96;     // quick commands: blue
-        cv_fill(cv, k.x + 1, k.y + 1, k.w - 2, k.h - 2, kb[0], kb[1], kb[2]);
+        cv_fill(cv, k.x, k.y, k.w, k.h, kb[0], kb[1], kb[2]);
         const bool down_k = (int)i == pressed_key_index;
         if (down_k)
         {
             // pushed in: dark inner edge at top/left, label moves down 1 px
-            cv_fill(cv, k.x + 1, k.y + 1, k.w - 2, 2, 30, 30, 44);
-            cv_fill(cv, k.x + 1, k.y + 1, 2, k.h - 2, 30, 30, 44);
+            cv_fill(cv, k.x, k.y, k.w, 2, 30, 30, 44);
+            cv_fill(cv, k.x, k.y, 2, k.h, 30, 30, 44);
         }
         else
-            cv_fill(cv, k.x + 1, k.y + k.h - 3, k.w - 2, 2, 28, 29, 38);   // key edge
+            cv_fill(cv, k.x, k.y + k.h - 2, k.w, 2, 28, 29, 38);   // key edge
 
         const char *label = k.label;
         char one[2] = { 0, 0 };
@@ -1832,6 +1847,13 @@ static int softkey_at(int px, int py)
     {
         const softkey &k = softkeys[i];
         if (px >= k.x && px < k.x + k.w && py >= k.y && py < k.y + k.h)
+            return (int)i;
+    }
+    // a tap in a 4-px gap or the 6-px margin goes to the key beside it
+    for (size_t i = 0; i < softkeys.size(); ++i)
+    {
+        const softkey &k = softkeys[i];
+        if (px >= k.x - 3 && px < k.x + k.w + 3 && py >= k.y - 3 && py < k.y + k.h + 3)
             return (int)i;
     }
     return -1;
@@ -2215,18 +2237,30 @@ static void poll_input()
         bottom_dirty = true;
         if (keyboard_overlay)
         {
-            if (tp.py < KB_Y0 && tp.px < 120)
-            {
-                keyboard_overlay = kb_auto = false;
-                kb_dismissed = true;
-                return;
-            }
             const int i = softkey_at(tp.px, tp.py);
             pressed_key_index = i;
             if (i >= 0)
             {
                 ui_tap_feedback();
                 const softkey &k = softkeys[i];
+                if (k.special == SKEY_CLOSE)
+                {
+                    keyboard_overlay = kb_auto = false;
+                    kb_dismissed = true;
+                    kb_cmd_page = false;
+                    build_keyboard();
+                    pressed_key_index = -1;
+                    return;
+                }
+                if (k.special == SKEY_PAGE)
+                {
+                    kb_cmd_page = !kb_cmd_page;
+                    build_keyboard();
+                    pressed_key_index = -1;
+                    for (size_t j = 0; j < softkeys.size(); ++j)   // keep the page key shown pressed
+                        if (softkeys[j].special == SKEY_PAGE) pressed_key_index = (int)j;
+                    return;
+                }
                 if (k.special == SKEY_LIGHT)
                 {
                     cycle_brightness();

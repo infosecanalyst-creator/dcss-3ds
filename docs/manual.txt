@@ -78,10 +78,10 @@ Menus (inventory, spells, character creation, shops) appear on the top screen. T
 
 At the bottom: Esc, Enter, Page Up, Page Down and Keys.
 
-When Crawl wants you to type (your name, a travel destination, a search), the touch keyboard opens by itself. Shft and Ctrl stick for one key. The arrow keys are in its top row. Close it with Select.
+When Crawl wants you to type (your name, a travel destination, a search), the touch keyboard opens by itself. Shft and Ctrl stick for one key. The arrow keys are in its top row, next to Close. Close it with Close or Select.
 
 ## Quick commands
-Under the keys of the keyboard are blue buttons for the commands without a button on the play screen. Tap keys, then one of them; the keyboard closes by itself.
+The keyboard's Cmds key (bottom right) swaps the letters for blue buttons: the commands without a button on the play screen. Tap keys, Cmds, then one of them; the keyboard closes by itself. ABC brings the letters back.
 | Fire | fire or throw what is quivered |
 | Learn | learn a spell from a book |
 | Look | look around, examine monsters |
