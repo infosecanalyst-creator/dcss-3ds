@@ -38,6 +38,7 @@
 #include <cstdio>
 #include <cstring>
 #include <algorithm>
+#include <cstdlib>
 #include <deque>
 #include <string>
 #include <vector>
@@ -276,9 +277,16 @@ static void cv_blit(const Canvas &c, gfxScreen_t screen, gfx3dSide_t side)
     }
 }
 
-// ZL swaps the screens: the game goes up on the top screen (centred 1:1, 320 of 400 wide) and
-// the dashboard comes down at 0.8 so all of it shows. The stylus is off while swapped.
+// ZL swaps the screens: the game goes up and fills the top screen (UI rule 8, stretched 1.25 across)
+// and the dashboard comes down at 0.8 so all of it shows. While swapped the touch screen is a
+// touchpad (UI rule 7): slide moves a pointer over the game, a short tap taps where it points.
 static bool g_swapped = false;
+static int g_ptr_x = 160, g_ptr_y = 120;   // the touchpad pointer, in game-canvas (320x240) pixels
+static void touch_read(touchPosition *tp)
+{
+    if (g_swapped) { tp->px = (u16)g_ptr_x; tp->py = (u16)g_ptr_y; return; }
+    hidTouchRead(tp);
+}
 static uint8_t sw_top_px[400 * 240 * 3], sw_bot_px[320 * 240 * 3];
 static Canvas sw_top = { 400, 240, sw_top_px };
 static Canvas sw_bot = { 320, 240, sw_bot_px };
@@ -294,9 +302,22 @@ static void cv_present(const Canvas &c)
     }
     else if (!is_top)
     {
-        memset(sw_top_px, 0, sizeof sw_top_px);
         for (int y = 0; y < 240; ++y)
-            memcpy(sw_top_px + (y * 400 + 40) * 3, bot_cv.px + y * 320 * 3, 320 * 3);
+            for (int x = 0; x < 400; ++x)
+                memcpy(sw_top_px + (y * 400 + x) * 3, bot_cv.px + (y * 320 + x * 4 / 5) * 3, 3);
+        // the touchpad pointer: a small arrow, white with a black edge
+        {
+            const int px = g_ptr_x * 5 / 4, py = g_ptr_y;
+            for (int r = 0; r < 12; ++r)
+                for (int c = 0; c <= r / 2 + 1 && c < 7; ++c)
+                {
+                    const int x = px + c, y = py + r;
+                    if (x < 0 || x >= 400 || y < 0 || y >= 240) continue;
+                    const bool edge = c == 0 || c == r / 2 + 1 || r == 11;
+                    uint8_t *q = sw_top_px + (y * 400 + x) * 3;
+                    q[0] = q[1] = q[2] = edge ? 0 : 255;
+                }
+        }
         cv_blit(sw_top, GFX_TOP, GFX_LEFT);
         cv_blit(sw_top, GFX_TOP, GFX_RIGHT);
     }
@@ -2044,7 +2065,7 @@ static bool manual_input(u32 down, u32 rep)
     if (down & KEY_TOUCH)
     {
         touchPosition tp;
-        hidTouchRead(&tp);
+        touch_read(&tp);
         mi.touch_down = true;
         mi.tx = tp.px;
         mi.ty = tp.py;
@@ -2088,7 +2109,30 @@ static void poll_input()
     }
     down &= ~KEY_ZL;
     if (g_swapped)
-        down &= ~KEY_TOUCH;            // the touchscreen is the dashboard while swapped
+    {
+        // touchpad: slide moves the pointer; a short tap becomes a touch at the pointer this frame
+        static bool on = false, moved = false;
+        static int lx, ly, sx, sy;
+        static u64 at;
+        const u32 held = hidKeysHeld(), rdown = hidKeysDown();
+        down &= ~KEY_TOUCH;
+        touchPosition t;
+        if (rdown & KEY_TOUCH) { hidTouchRead(&t); on = true; moved = false; lx = sx = t.px; ly = sy = t.py; at = osGetTime(); }
+        else if (on && (held & KEY_TOUCH))
+        {
+            hidTouchRead(&t);
+            if (abs(t.px - sx) + abs(t.py - sy) > 6) moved = true;
+            const int nx = std::max(0, std::min(319, g_ptr_x + (t.px - lx)));
+            const int ny = std::max(0, std::min(239, g_ptr_y + (t.py - ly)));
+            if (nx != g_ptr_x || ny != g_ptr_y) { g_ptr_x = nx; g_ptr_y = ny; bottom_dirty = true; }
+            lx = t.px; ly = t.py;
+        }
+        else if (on)
+        {
+            on = false;
+            if (!moved && osGetTime() - at < 350) down |= KEY_TOUCH;   // the tap, at the pointer
+        }
+    }
 
     if (g_manual.active())
     {
@@ -2158,7 +2202,7 @@ static void poll_input()
     if (down & KEY_TOUCH)
     {
         touchPosition tp;
-        hidTouchRead(&tp);
+        touch_read(&tp);
         bottom_dirty = true;
         if (keyboard_overlay)
         {

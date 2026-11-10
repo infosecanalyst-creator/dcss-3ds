@@ -63,7 +63,7 @@ Buttons run down both edges, outside your line of sight, so they never hide a mo
 | L | zoom the dungeon map out |
 | R | zoom the dungeon map in (three levels; remembered) |
 | C-Stick up | inventory (press again to close) |
-| ZL | swap the screens (stylus off while swapped) |
+| ZL | swap the screens: the game fills the top screen and the touch screen becomes a touchpad (slide moves the pointer, tap taps there) |
 | ZR | cast a spell (press again to close) |
 | Select | touch keyboard |
 | Start | this manual |
