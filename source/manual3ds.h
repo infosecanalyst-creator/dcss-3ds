@@ -191,6 +191,9 @@ public:
     // Footer hint on the top screen (empty = the default). Lets a port show left-handed labels.
     void set_footer(const std::string &f) { if (f != m_footer) { m_footer = f; m_dirty = true; } }
     bool take_toggle() { const bool t = m_toggle_hit; m_toggle_hit = false; return t; }
+    // Screen pixels per canvas pixel, vertically (OpenXcom: a 200-row canvas shown 240 tall = 1.2).
+    // Rule 11 sizes are in screen pixels, so the layout divides by this.
+    void set_pixel_scale_y(float s) { if (s > 0.1f && s != m_scale_y) { m_scale_y = s; m_dirty = true; } }
 
     bool update(const Input &in)
     {
@@ -402,7 +405,8 @@ private:
     bool m_active = false, m_dirty = true, m_click = false, m_toggle_hit = false;
     std::string m_toggle, m_footer;
     bool m_show_title = true;
-    int m_bar_focus = 0;   // 0: sections; 1, 2: the bottom row (toggle, Close) has the D-Pad highlight
+    int m_bar_focus = 0;
+    float m_scale_y = 1.0f;   // 0: sections; 1, 2: the bottom row (toggle, Close) has the D-Pad highlight
     int m_press_btn = -3, m_press_frames = 0;   // touch feedback
 
     int m_view_h = 240;          // height of the last top canvas drawn
@@ -545,18 +549,21 @@ private:
         const int n = (int)m_sections.size();
         const int cols = n > 6 ? 2 : 1;
         const int rows = (n + cols - 1) / cols;
-        const int edge = 6, gap = 4, minh = 24, maxh = 34, barh = 26;
-        const int bar_y = h - edge - 4 - barh;          // Close / toggle row
-        const int bottom = bar_y - gap - 2;             // the grid ends above it
+        // sizes in screen pixels, converted to canvas rows (rounded up) for a stretched canvas
+        auto px = [&](int screen) { return (int)(screen / m_scale_y + 0.99f); };
+        const int edge = 6, gap = 4, minh = px(24), maxh = px(34), barh = px(26);
+        const int vedge = px(6), vgap = px(4);
+        const int bar_y = h - vedge - barh;             // Close / toggle row
+        const int bottom = bar_y - vgap;                // the grid ends above it
         int top = 22;
         m_show_title = true;
-        if (rows * minh + (rows - 1) * gap > bottom - top) { top = edge; m_show_title = false; }
-        const int bh = std::max(minh, std::min(maxh, (bottom - top + gap) / std::max(1, rows) - gap));
+        if (rows * minh + (rows - 1) * vgap > bottom - top) { top = vedge; m_show_title = false; }
+        const int bh = std::max(minh, std::min(maxh, (bottom - top + vgap) / std::max(1, rows) - vgap));
         const int bw = (w - 2 * edge - (cols - 1) * gap) / cols;
         for (int i = 0; i < n; ++i)
         {
             const int c = i / rows, r = i % rows;
-            m_buttons.push_back({ edge + c * (bw + gap), top + r * (bh + gap), bw, bh, i });
+            m_buttons.push_back({ edge + c * (bw + gap), top + r * (bh + vgap), bw, bh, i });
         }
         if (m_toggle.empty())
             m_buttons.push_back({ w / 2 - 60, bar_y, 120, barh, -2 });
