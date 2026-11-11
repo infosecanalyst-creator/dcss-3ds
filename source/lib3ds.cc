@@ -1786,7 +1786,7 @@ static void build_keyboard()
     // button, one tap each (the keyboard closes after the tap)
     static const struct { const char *label; int key; } quick[12] =
     {
-        { "Fire", 'f' }, { "Learn", 'M' }, { "Look", 'x' }, { "Close", 'C' },
+        { "Fire", 'f' }, { "Learn", 'M' }, { "Look", 'x' }, { "Close door", 'C' },
         { "Skills", 'm' }, { "Travel", 'G' },
         { "Search", CONTROL('F') }, { "Religion", '^' }, { "Overview", CONTROL('O') },
         { "Mutation", 'A' }, { "Swap", '\'' }, { "Orders", 't' },
