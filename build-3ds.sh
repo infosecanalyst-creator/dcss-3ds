@@ -3,13 +3,19 @@
 #
 #   ./build-3ds.sh            # build (clones crawl into ./crawl on first run)
 #   ./build-3ds.sh clean      # clean the crawl tree's 3DS outputs
-#   CRAWL_REF=0.34.1 ./build-3ds.sh   # build a specific tag instead of master
+#   CRAWL_REF=0.34.1 ./build-3ds.sh   # build a specific tag or commit instead
+#
+# CRAWL_REF defaults to the crawl commit that 3ds/tiles16.bin was built from.
+# The atlas is indexed by crawl's tile numbers, so a newer crawl that adds tiles
+# shifts every number; the game then rejects the atlas and draws glyphs. To move
+# to a newer crawl, rebuild the atlas from it (tools/gen_atlas.py) and update
+# both together.
 #
 # Needs DEVKITPRO set (the Docker image sets it). Run from the dcss-3ds folder.
 set -euo pipefail
 HERE="$(cd "$(dirname "$0")" && pwd)"
 CRAWL_DIR="${CRAWL_DIR:-$HERE/crawl}"
-CRAWL_REF="${CRAWL_REF:-master}"
+CRAWL_REF="${CRAWL_REF:-5e89c473da01f5603fbae87a11286a5d52c773e5}"
 JOBS="${JOBS:-$(nproc 2>/dev/null || echo 4)}"
 
 if [ -z "${DEVKITPRO:-}" ]; then
@@ -21,7 +27,10 @@ export PATH="$DEVKITARM/bin:$DEVKITPRO/tools/bin:$PATH"
 
 if [ ! -d "$CRAWL_DIR/.git" ]; then
     echo "==> cloning crawl ($CRAWL_REF) into $CRAWL_DIR"
-    git clone --branch "$CRAWL_REF" --depth 1 https://github.com/crawl/crawl.git "$CRAWL_DIR"
+    git init -q "$CRAWL_DIR"
+    git -C "$CRAWL_DIR" remote add origin https://github.com/crawl/crawl.git
+    git -C "$CRAWL_DIR" fetch -q --depth 1 origin "$CRAWL_REF"
+    git -C "$CRAWL_DIR" checkout -q FETCH_HEAD
 fi
 cd "$CRAWL_DIR"
 echo "==> contrib submodules (lua, pcre, sqlite, zlib)"

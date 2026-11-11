@@ -490,7 +490,17 @@ static bool load_atlas()
 #ifdef USE_TILE
     // the atlas must match this build's tile numbering exactly
     if (atlas_n != (uint32_t)TILEI_ICONS_MAX)
+    {
+        // a crawl newer/older than the atlas: say so instead of silently
+        // drawing glyphs (build-3ds.sh pins the matching crawl commit)
+        if (FILE *lf = fopen("sdmc:/3ds/crawl/atlas.log", "w"))
+        {
+            fprintf(lf, "tiles16.bin has %u tiles, this build expects %u: map drawn with glyphs\n",
+                    (unsigned)atlas_n, (unsigned)TILEI_ICONS_MAX);
+            fclose(lf);
+        }
         got = 0;
+    }
 #endif
     if (got != total)
     {
