@@ -53,6 +53,7 @@ python3 "$HERE/tools/patch_crawl.py" "$SRC"
 # its tile numbers always match the build.
 if [ ! -f "$SRC/3ds/tiles16.bin" ]; then
     echo "==> making the tile atlas (3ds/tiles16.bin) from crawl's rltiles"
+    ( cd "$SRC" && perl util/art-data.pl )      # writes rltiles/dc-unrand.txt
     RLT="$(mktemp -d)/rltiles"
     cp -r "$SRC/rltiles" "$RLT"
     env -u CC -u CXX -u CFLAGS -u CXXFLAGS -u LDFLAGS \
