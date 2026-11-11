@@ -47,6 +47,24 @@ fi
 echo "==> applying the 3DS port"
 python3 "$HERE/tools/patch_crawl.py" "$SRC"
 
+# The map's tile art: tiles16.bin, cut from crawl's own (CC0) tile sheets.
+# Not kept in git; a local copy in source/3ds is used when present (copied in
+# by patch_crawl.py), otherwise it is made here from this crawl checkout so
+# its tile numbers always match the build.
+if [ ! -f "$SRC/3ds/tiles16.bin" ]; then
+    echo "==> making the tile atlas (3ds/tiles16.bin) from crawl's rltiles"
+    RLT="$(mktemp -d)/rltiles"
+    cp -r "$SRC/rltiles" "$RLT"
+    env -u CC -u CXX -u CFLAGS -u CXXFLAGS -u LDFLAGS \
+        make -C "$RLT" -j"$JOBS" TILES=y CC=gcc CXX=g++ STDFLAG=-std=c++17 > "$HERE/atlas-build.log" 2>&1 \
+        || { tail -30 "$HERE/atlas-build.log"; echo "tile sheets failed; the map will use glyphs"; }
+    if [ -f "$RLT/main.png" ]; then
+        mkdir -p "$SRC/3ds"
+        python3 "$HERE/tools/gen_atlas.py" "$RLT" "$SRC/3ds/tiles16.bin" 16
+        ls -la "$SRC/3ds/tiles16.bin"
+    fi
+fi
+
 echo "==> building crawl.3dsx with $JOBS jobs"
 make -C "$SRC" TARGET_3DS=y -j"$JOBS" 3dsx 2>&1 | tee "$HERE/build-3ds.log"
 

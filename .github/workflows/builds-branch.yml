@@ -15,7 +15,7 @@ jobs:
       - name: Tools
         run: |
           apt-get update -qq
-          apt-get install -y -qq git python3 python3-yaml perl flex bison pkg-config libpng-dev zlib1g-dev build-essential ca-certificates >/dev/null
+          apt-get install -y -qq git python3 python3-yaml perl flex bison pkg-config libpng-dev zlib1g-dev python3-numpy python3-pil build-essential ca-certificates >/dev/null
           git config --global --add safe.directory '*'
       - uses: actions/checkout@v4
       - name: Build
