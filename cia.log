@@ -1,0 +1,123 @@
+make: Entering directory '/__w/dcss-3ds/dcss-3ds/crawl/crawl-ref/source'
+fatal: No names found, cannot describe anything.
+make -C rltiles all ARCH=arm-none-eabi TILES=
+make[1]: Entering directory '/__w/dcss-3ds/dcss-3ds/crawl/crawl-ref/source/rltiles'
+make[1]: Leaving directory '/__w/dcss-3ds/dcss-3ds/crawl/crawl-ref/source/rltiles'
+    GEN species-type.h
+    GEN job-type.h
+    PYTHON rltilesstatus-icon-sizes.h
+    CXX lib3ds.o
+In file included from mon-enum.h:208,
+                 from mon-util.h:15,
+                 from mon-info.h:7,
+                 from directn.h:12,
+                 from lib3ds.cc:54:
+mon-flags.h:7:9: warning: 'BIT' redefined
+    7 | #define BIT(x) ((uint64_t)1<<(x))
+      |         ^~~
+In file included from /opt/devkitpro/libctru/include/3ds.h:17,
+                 from lib3ds.cc:34:
+/opt/devkitpro/libctru/include/3ds/types.h:47:9: note: this is the location of the previous definition
+   47 | #define BIT(n) (1U<<(n))
+      |         ^~~
+In file included from externs.h:45,
+                 from AppHdr.h:314,
+                 from lib3ds.cc:28:
+item-def.h:36:20: warning: width of 'item_def::<unnamed union>::skill' exceeds its type
+   36 |         skill_type skill:16;        ///< the skill provided by a manual
+      |                    ^~~~~
+lib3ds.cc: In function 'void cv_present(const Canvas&)':
+lib3ds.cc:312:26: warning: declaration of 'int c' shadows a parameter [-Wshadow]
+  312 |                 for (int c = 0; c <= r / 2 + 1 && c < 7; ++c)
+      |                          ^
+lib3ds.cc:295:38: note: shadowed declaration is here
+  295 | static void cv_present(const Canvas &c)
+      |                        ~~~~~~~~~~~~~~^
+lib3ds.cc: In function 'void draw_text_mode_bottom()':
+lib3ds.cc:1653:74: warning: enumerated and non-enumerated type in conditional expression [-Wextra]
+ 1653 |                 draw_char(cv, F_TEXT, px, ty, c.glyph, pal(c.fg == BLACK ? LIGHTGREY : c.fg), nullptr);
+      |                                                            ~~~~~~~~~~~~~~^~~~~~~~~~~~~~~~~~
+lib3ds.cc: At global scope:
+lib3ds.cc:2532:8: warning: no previous declaration for 'time_t lib3ds_romfs_mtime()' [-Wmissing-declarations]
+ 2532 | time_t lib3ds_romfs_mtime()
+      |        ^~~~~~~~~~~~~~~~~~
+lib3ds.cc:2632:6: warning: no previous declaration for 'void lib3ds_fatal_wait(const char*)' [-Wmissing-declarations]
+ 2632 | void lib3ds_fatal_wait(const char *msg)
+      |      ^~~~~~~~~~~~~~~~~
+lib3ds.cc: In function 'void home_log(const char*)':
+lib3ds.cc:2677:45: warning: format '%p' expects argument of type 'void*', but argument 6 has type 'u32*' {aka 'unsigned int*'} [-Wformat=]
+ 2677 |     fprintf(f, "%llu %s: top fmt=%02lx fb0=%p fb1=%p | bot fmt=%02lx fb0=%p fb1=%p\n",
+      |                                            ~^
+      |                                             |
+      |                                             void*
+      |                                            %n
+ 2678 |             (unsigned long long)osGetTime(), what,
+ 2679 |             (unsigned long)ci.screencapture[0].format, ci.screencapture[0].framebuf0_vaddr,
+      |                                                        ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+      |                                                                            |
+      |                                                                            u32* {aka unsigned int*}
+lib3ds.cc:2677:52: warning: format '%p' expects argument of type 'void*', but argument 7 has type 'u32*' {aka 'unsigned int*'} [-Wformat=]
+ 2677 |     fprintf(f, "%llu %s: top fmt=%02lx fb0=%p fb1=%p | bot fmt=%02lx fb0=%p fb1=%p\n",
+      |                                                   ~^
+      |                                                    |
+      |                                                    void*
+      |                                                   %n
+......
+ 2680 |             ci.screencapture[0].framebuf1_vaddr,
+      |             ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~     
+      |                                 |
+      |                                 u32* {aka unsigned int*}
+lib3ds.cc:2677:75: warning: format '%p' expects argument of type 'void*', but argument 9 has type 'u32*' {aka 'unsigned int*'} [-Wformat=]
+ 2677 |     fprintf(f, "%llu %s: top fmt=%02lx fb0=%p fb1=%p | bot fmt=%02lx fb0=%p fb1=%p\n",
+      |                                                                          ~^
+      |                                                                           |
+      |                                                                           void*
+      |                                                                          %n
+......
+ 2681 |             (unsigned long)ci.screencapture[1].format, ci.screencapture[1].framebuf0_vaddr,
+      |                                                        ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+      |                                                                            |
+      |                                                                            u32* {aka unsigned int*}
+lib3ds.cc:2677:82: warning: format '%p' expects argument of type 'void*', but argument 10 has type 'u32*' {aka 'unsigned int*'} [-Wformat=]
+ 2677 |     fprintf(f, "%llu %s: top fmt=%02lx fb0=%p fb1=%p | bot fmt=%02lx fb0=%p fb1=%p\n",
+      |                                                                                 ~^
+      |                                                                                  |
+      |                                                                                  void*
+      |                                                                                 %n
+......
+ 2682 |             ci.screencapture[1].framebuf1_vaddr);
+      |             ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~                                   
+      |                                 |
+      |                                 u32* {aka unsigned int*}
+lib3ds.cc: In function 'unsigned int get_highlight(int)':
+lib3ds.cc:2900:41: warning: enumerated and non-enumerated type in conditional expression [-Wextra]
+ 2900 |        (col & COLFLAG_TRAP_ITEM)        ? Options.trap_item_highlight :
+      |        ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~^~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+ 2901 |        (col & COLFLAG_REVERSE)          ? CHATTR_REVERSE
+      |        ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+ 2902 |                                         : CHATTR_NORMAL;
+      |                                         ~~~~~~~~~~~~~~~
+In file included from lib3ds.cc:96:
+manual3ds.h: In member function 'void manual3ds::Manual::draw_top(manual3ds::Canvas&)':
+manual3ds.h:316:38: warning: '%d' directive output may be truncated writing between 1 and 8 bytes into a region of size between 4 and 14 [-Wformat-truncation=]
+  316 |         snprintf(pg, sizeof(pg), "%d/%d", m_sec + 1, (int)m_sections.size());
+      |                                      ^~
+manual3ds.h:316:34: note: directive argument in the range [0, 59652323]
+  316 |         snprintf(pg, sizeof(pg), "%d/%d", m_sec + 1, (int)m_sections.size());
+      |                                  ^~~~~~~
+manual3ds.h:316:17: note: 'snprintf' output between 4 and 21 bytes into a destination of size 16
+  316 |         snprintf(pg, sizeof(pg), "%d/%d", m_sec + 1, (int)m_sections.size());
+      |         ~~~~~~~~^~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+    LINK crawl.elf
+    ROMFS   romfs/
+26M	romfs
+makerom -f cia -o crawl.cia -elf crawl.elf -rsf 3ds/crawl.rsf -icon crawl.smdh \
+        -banner 3ds/banner.bnr -exefslogo -target t -DAPP_ROMFS=romfs \
+        || makerom -f cia -o crawl.cia -elf crawl.elf -rsf 3ds/crawl.rsf -icon crawl.smdh \
+        -target t -DAPP_ROMFS=romfs
+[NCCH ERROR] Failed to open banner file '3ds/banner.bnr'
+[NCCH ERROR] Failed to initialize context.
+[NCCH ERROR] NCCH Build Process Failed
+[RESULT] Failed to build NCCH (ret = -3)
+-rw-r--r-- 1 root root 33170368 Nov 11 04:31 crawl.cia
+make: Leaving directory '/__w/dcss-3ds/dcss-3ds/crawl/crawl-ref/source'
