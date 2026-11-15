@@ -6,7 +6,7 @@ Your goal is to find the Orb of Zot in the depths of the dungeon and carry it ba
 ## This port
 The New 3DS version is the full game with Crawl's own tile art. The touch screen is the dungeon and the top screen shows your character, the monsters in view, a map and the messages.
 
-Press Start at any time to open this manual. The game waits while you read.
+Press START at any time for the menu: Resume, Manual, Keyboard, Brightness and Exit Game. Manual opens this text; the game waits while you read.
 
 ## Using this manual
 - Circle Pad or C-Stick up/down: scroll the text (hold to keep scrolling).
@@ -64,7 +64,7 @@ Buttons run down both edges, outside your line of sight, so they never hide a mo
 | ZL | swap the screens (stylus off while swapped) |
 | ZR | cast a spell (press again to close) |
 | Select | touch keyboard |
-| Start | this manual |
+| START | menu (manual, keyboard, brightness, exit) |
 | HOME | save and quit |
 
 ## On questions and menus
@@ -161,7 +161,7 @@ Effects show in colour on the top screen under your stats: for example Poison, S
 - New effects are also announced in the messages.
 
 # Saving and loading
-- HOME saves the game and quits. Your character is waiting on the main menu next time.
+- START, then Exit Game (YES) saves the game and quits, as does HOME then Close. Your character is waiting on the main menu next time.
 - There is one save per character. Death is permanent: the game ends and goes to the high scores.
 - Saves, morgue files (a record of each game) and your settings are in sdmc:/3ds/crawl/.
 
@@ -174,7 +174,7 @@ Effects show in colour on the top screen under your stats: for example Poison, S
 
 # Troubleshooting
 ## The screen is too dark
-Open the keyboard (the "keys" button or SELECT) and tap Bright to step through five brightness levels (0 is the original look, 2 is the default). Your choice is remembered. The 3DS's own brightness setting in the HOME Menu also helps; power-saving mode dims the screens.
+Open the keyboard (the "keys" button or SELECT) and tap Bright (or START, then Brightness) to step through five brightness levels (0 is the original look, 2 is the default). Your choice is remembered. The 3DS's own brightness setting in the HOME Menu also helps; power-saving mode dims the screens.
 
 ## The first start takes minutes
 Crawl builds its databases and level cache when the game data changes (rarely, with a new version). Other starts take seconds.

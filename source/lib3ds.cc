@@ -2022,6 +2022,179 @@ static bool manual_input(u32 down, u32 rep)
     return true;
 }
 
+// ===========================================================================
+// START menu (house style: navy panel, header bar, gold focus, hint strip)
+// ===========================================================================
+
+static bool pm_open = false;
+static int  pm_page = 0;          // 0 = main list, 1 = exit confirm
+static int  pm_focus = 0;
+static int  pm_pressed = -1, pm_press_frames = 0;
+
+static const char *const kPmItems[] = { "RESUME", "MANUAL", "KEYBOARD", "BRIGHTNESS", "EXIT GAME" };
+static const int kPmCount = 5;
+
+static void pm_rect(int i, int &x, int &y, int &w, int &h)
+{
+    if (pm_page == 0)
+    {
+        w = 200; h = 30; x = (320 - w) / 2; y = 34 + i * 37;
+    }
+    else
+    {
+        w = 110; h = 34; y = 130; x = i == 0 ? 40 : 170;
+    }
+}
+
+static void pm_button(Canvas &cv, int i, const char *label)
+{
+    int x, y, w, h;
+    pm_rect(i, x, y, w, h);
+    const bool pr = pm_pressed == i;
+    if (pr)
+        cv_fill(cv, x, y, w, h, 220, 180, 60);
+    else
+    {
+        cv_fill(cv, x + 2, y + 2, w, h, 20, 30, 70);       // shadow
+        cv_fill(cv, x, y, w, h, 40, 56, 120);
+    }
+    cv_frame(cv, x, y, w, h, 120, 150, 230);
+    if (pm_focus == i)
+    {
+        cv_frame(cv, x - 2, y - 2, w + 4, h + 4, 255, 204, 64);
+        cv_frame(cv, x - 3, y - 3, w + 6, h + 6, 255, 204, 64);
+    }
+    const int push = pr ? 1 : 0;
+    draw_text(cv, F_BOLD, x + (w - text_width(F_BOLD, label)) / 2 + push,
+              y + (h - F_BOLD.h) / 2 + push, label, pr ? C_TEXT : C_WHITE);
+}
+
+static void draw_port_menu()
+{
+    Canvas &cv = bot_cv;
+    cv_fill(cv, 0, 0, 320, 240, 8, 12, 40);
+    cv_fill(cv, 0, 0, 320, 22, 40, 56, 120);
+    cv_fill(cv, 0, 22, 320, 1, 120, 150, 230);
+    static const uint8_t C_HDR[3] = {255, 204, 64};
+    if (pm_page == 0)
+    {
+        draw_text(cv, F_BOLD, 8, 5, "MENU", C_HDR);
+        for (int i = 0; i < kPmCount; ++i)
+            pm_button(cv, i, kPmItems[i]);
+    }
+    else
+    {
+        draw_text(cv, F_BOLD, 8, 5, "EXIT GAME", C_HDR);
+        const char *q = "Save and exit to the 3DS menu?";
+        draw_text(cv, F_TEXT, (320 - text_width(F_TEXT, q)) / 2, 80, q, C_WHITE);
+        pm_button(cv, 0, "YES");
+        pm_button(cv, 1, "NO");
+    }
+    cv_fill(cv, 0, 224, 320, 16, 40, 56, 120);
+    cv_fill(cv, 0, 224, 320, 1, 120, 150, 230);
+    const char *hint = pm_page == 0 ? "A Select   B Back   ZL Swap" : "A Select   B Back";
+    draw_text(cv, F_SMALL, (320 - text_width(F_SMALL, hint)) / 2, 228, hint, C_HDR);
+    cv_present(top_cv);
+    cv_present(bot_cv);
+}
+
+static void pm_close()
+{
+    pm_open = false;
+    top_dirty = bottom_dirty = grid_all_dirty = true;
+}
+
+static void pm_click()
+{
+#ifdef SOUND_PLAY_3DS
+    if (Options.sounds_on)
+        lib3ds_play_sound("romfs:/dat/sounds/x-click.pcm");
+#endif
+}
+
+static void pm_do_exit()
+{
+    pm_close();
+    // The same road as HOME -> Close: crawl saves the game and exits.
+    if (you.save)
+        you.save->lib3ds_reopen_fd();
+    crawl_state.seen_hups = true;
+}
+
+static void pm_act(int i)
+{
+    pm_click();
+    if (pm_page == 1)
+    {
+        if (i == 0)
+            pm_do_exit();
+        pm_page = 0; pm_focus = 4;
+        draw_port_menu();
+        return;
+    }
+    switch (i)
+    {
+    case 0: pm_close(); break;
+    case 1: pm_close(); g_manual.open(); draw_manual(); break;
+    case 2:
+        pm_close();
+        keyboard_overlay = !keyboard_overlay;
+        kb_dismissed = !keyboard_overlay;
+        kb_auto = false;
+        break;
+    case 3: cycle_brightness(); draw_port_menu(); break;
+    case 4: pm_page = 1; pm_focus = 1; draw_port_menu(); break;
+    }
+}
+
+// Returns true while the menu has the input.
+static bool port_menu_input(u32 down, u32 rep)
+{
+    if (pm_press_frames && !--pm_press_frames)
+    {
+        pm_pressed = -1;
+        draw_port_menu();
+    }
+    const int n = pm_page == 0 ? kPmCount : 2;
+    if (down & (KEY_B | KEY_START))
+    {
+        pm_click();
+        if (pm_page == 1) { pm_page = 0; pm_focus = 4; draw_port_menu(); }
+        else pm_close();
+        return pm_open;
+    }
+    const u32 prev = pm_page == 0 ? KEY_DUP : KEY_DLEFT, next = pm_page == 0 ? KEY_DDOWN : KEY_DRIGHT;
+    if (rep & (prev | next))
+    {
+        pm_focus = (pm_focus + ((rep & next) ? 1 : n - 1)) % n;
+        draw_port_menu();
+    }
+    if (down & KEY_A)
+    {
+        pm_pressed = pm_focus; pm_press_frames = 6;
+        draw_port_menu();
+        pm_act(pm_focus);
+    }
+    else if ((down & KEY_TOUCH) && !g_swapped)
+    {
+        touchPosition tp;
+        hidTouchRead(&tp);
+        for (int i = 0; i < n; ++i)
+        {
+            int x, y, w, h;
+            pm_rect(i, x, y, w, h);
+            if (tp.px >= x && tp.px < x + w && tp.py >= y && tp.py < y + h)
+            {
+                pm_focus = i; pm_pressed = i; pm_press_frames = 6;
+                draw_port_menu();
+                pm_act(i);
+                break;
+            }
+        }
+    }
+    return pm_open;
+}
+
 static void poll_input()
 {
     auto_keyboard();
@@ -2035,6 +2208,8 @@ static void poll_input()
         top_dirty = bottom_dirty = true;
         if (g_manual.active())
             draw_manual();
+        else if (pm_open)
+            draw_port_menu();
     }
     down &= ~KEY_ZL;
     if (g_swapped)
@@ -2045,10 +2220,16 @@ static void poll_input()
         manual_input(down, rep);
         return;
     }
+    if (pm_open)
+    {
+        port_menu_input(down, rep);
+        return;
+    }
     if (down & KEY_START)
     {
-        g_manual.open();
-        draw_manual();
+        pm_open = true; pm_page = 0; pm_focus = 0; pm_pressed = -1;
+        pm_click();
+        draw_port_menu();
         return;
     }
 
@@ -2896,7 +3077,9 @@ int getch_ck()
             return k;
         }
         ui_feedback_tick();
-        if (!g_manual.active())
+        if (crawl_state.seen_hups)
+            return ESCAPE;
+        if (!g_manual.active() && !pm_open)
         {
             if (top_dirty)
                 draw_top();
@@ -2924,7 +3107,7 @@ bool kbhit()
             return false;
         }
         poll_input();
-        if (bottom_dirty && !g_manual.active())
+        if (bottom_dirty && !g_manual.active() && !pm_open)
             draw_bottom();
     }
     return !keyq.empty() || !tapq.empty();
@@ -3003,7 +3186,7 @@ void puttext(int x1, int y1, const crawl_view_buffer &vbuf)
 
 void update_screen()
 {
-    if (!inited)
+    if (!inited || pm_open)
         return;
     if (any_dirty())
     {

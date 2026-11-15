@@ -64,6 +64,11 @@ else
   WEBTILES := y
   EXTERNAL_LDFLAGS += -specs=3dsx.specs $(ARCH_3DS) -L$(DEVKITPRO)/libctru/lib -Wl,--gc-sections
   EXTRA_LIBS += -lctru -lm
+  # Hardware test hooks (3ds-test-suite hwtest/selftest): inactive unless the test agent
+  # starts the game with --selftest=<script>.
+  SELFTEST_WRAP := hidScanInput hidKeysHeld hidKeysDown hidKeysDownRepeat hidKeysUp hidTouchRead hidCircleRead irrstCstickRead aptMainLoop
+  EXTERNAL_LDFLAGS += $(foreach f,$(SELFTEST_WRAP),-Wl,--wrap=$(f))
+  EXTRA_OBJECTS += 3ds/selftest3ds.o
   GAME := crawl.elf
 endif # HARNESS_3DS
 endif
