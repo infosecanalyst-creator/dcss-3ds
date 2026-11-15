@@ -19,6 +19,10 @@ RSF         := 3ds/crawl.rsf
 
 .PHONY: romfs 3dsx cia clean-3ds
 
+# the hardware test hooks are C
+3ds/selftest3ds.o: 3ds/selftest3ds.c
+	$(DEVKITARM)/bin/arm-none-eabi-gcc $(ARCH_3DS) -O2 -D__3DS__ -isystem $(DEVKITPRO)/libctru/include -c $< -o $@
+
 romfs: dat/dlua/tags.lua
 	@echo "    ROMFS   $(ROMFS_DIR)/"
 	@rm -rf $(ROMFS_DIR)
