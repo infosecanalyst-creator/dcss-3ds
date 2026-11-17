@@ -253,11 +253,26 @@ static void st_watchdog(void* arg) {
             if (st_log) { fclose(st_log); st_log = NULL; }
             st_set_target();
             if (!st_done) {
-                // A hung game is usually stuck waiting on the GPU. Ending it from here left the GPU hung,
-                // and every later launch froze on its first frame until a power-off; GSPGPU_ResetGpuCore()
-                // did not help (Nov 15 2026). So leave the hung game alone: its screen shows where it
-                // stopped, the log is closed, and a power-off is needed either way.
-                return;
+                // A hung game is usually stuck waiting on the GPU. Ending the process left the GPU hung
+                // (every later launch froze until a power-off), so restart the whole console instead:
+                // a clean restart through APT. Nobody has to hold
+                // POWER, and the log is already closed (Nov 15 2026).
+                // Restart through APT (the application way), then end this process so the restart is
+                // not held up by a stuck main thread. ptm:sysm RebootAsync crashed the ptm process
+                // (kernel panic, Nov 15), so it is not used.
+                svcSleepThread(500000000LL);
+                // Cold restart through the MCU first (Nov 16): Luma treats it as a power-on and
+                // autoboots the test agent, so nobody has to touch the 3DS. Tested from the agent
+                // (COLDREBOOT). APT restart as the fallback (lands on the HOME Menu).
+                if (R_SUCCEEDED(mcuHwcInit())) {
+                    u8 v = 1 << 2;
+                    MCUHWC_WriteRegister(0x20, &v, 1);
+                    mcuHwcExit();
+                    svcSleepThread(3000000000LL);
+                }
+                APT_HardwareResetAsync();
+                svcSleepThread(2000000000LL);
+                svcExitProcess();
             }
             aptSetChainloaderToSelf();   // relaunch the Homebrew loader, which starts the agent
             aptExit();
