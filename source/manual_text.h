@@ -63,7 +63,7 @@ Buttons run down both edges, outside your line of sight, so they never hide a mo
 | L | zoom the dungeon map out |
 | R | zoom the dungeon map in (three levels; remembered) |
 | C-Stick up | inventory (press again to close) |
-| ZL | swap the screens: the game fills the top screen and the touch screen becomes a touchpad (slide moves the pointer, tap taps there) |
+| ZL | swap the screens in the dungeon and the manual: the map fills the top screen, the status and messages move to the touch screen (laid out for it), and the touch screen becomes a touchpad (slide moves the pointer, tap taps there). Crawl's full-screen text pages (menus, character sheet, title) stay on top so they stay readable |
 | ZR | cast a spell (press again to close) |
 | Select | touch keyboard |
 | START | menu (manual, keyboard, brightness, exit) |
