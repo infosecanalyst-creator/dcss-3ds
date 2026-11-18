@@ -281,10 +281,17 @@ static void cv_blit(const Canvas &c, gfxScreen_t screen, gfx3dSide_t side)
 // and the dashboard comes down at 0.8 so all of it shows. While swapped the touch screen is a
 // touchpad (UI rule 7): slide moves a pointer over the game, a short tap taps where it points.
 static bool g_swapped = false;
+// The swap applies in the dungeon and in the manual. crawl's own text screens (menus, character
+// sheet, the title) are 80 columns of 5-px text: squeezed onto the 320-wide touch screen they
+// can't be read (readability rule, Nov 17 2026), so those stay unswapped.
+static bool swap_on() { return g_swapped && !crt_mode; }
+// The swapped dashboard and manual are laid out at 320 wide in top_cv's buffer (row stride 320)
+// and copied 1:1 to the touch screen.
+static bool g_top_narrow = false;
 static int g_ptr_x = 160, g_ptr_y = 120;   // the touchpad pointer, in game-canvas (320x240) pixels
 static void touch_read(touchPosition *tp)
 {
-    if (g_swapped) { tp->px = (u16)g_ptr_x; tp->py = (u16)g_ptr_y; return; }
+    if (swap_on()) { tp->px = (u16)g_ptr_x; tp->py = (u16)g_ptr_y; return; }
     hidTouchRead(tp);
 }
 static uint8_t sw_top_px[400 * 240 * 3], sw_bot_px[320 * 240 * 3];
@@ -295,7 +302,7 @@ static Canvas sw_bot = { 320, 240, sw_bot_px };
 static void cv_present(const Canvas &c)
 {
     const bool is_top = (&c == &top_cv);
-    if (!g_swapped)
+    if (!swap_on())
     {
         if (is_top) { cv_blit(top_cv, GFX_TOP, GFX_LEFT); cv_blit(top_cv, GFX_TOP, GFX_RIGHT); }
         else cv_blit(bot_cv, GFX_BOTTOM, GFX_LEFT);
@@ -323,14 +330,18 @@ static void cv_present(const Canvas &c)
     }
     else
     {
-        memset(sw_bot_px, 0, sizeof sw_bot_px);
-        for (int y = 0; y < 192; ++y)
-            for (int x = 0; x < 320; ++x)
-                memcpy(sw_bot_px + ((y + 24) * 320 + x) * 3, top_cv.px + ((y * 5 / 4) * 400 + (x * 5 / 4)) * 3, 3);
+        if (g_top_narrow)
+            memcpy(sw_bot_px, top_cv.px, sizeof sw_bot_px);
+        else   // not expected: everything drawn while swapped is laid out at 320
+        {
+            memset(sw_bot_px, 0, sizeof sw_bot_px);
+            for (int y = 0; y < 240; ++y)
+                memcpy(sw_bot_px + y * 320 * 3, top_cv.px + y * 400 * 3, 320 * 3);
+        }
         cv_blit(sw_bot, GFX_BOTTOM, GFX_LEFT);
     }
     gfxFlushBuffers();
-    const bool to_top = g_swapped ? !is_top : is_top;
+    const bool to_top = swap_on() ? !is_top : is_top;
     gfxScreenSwapBuffers(to_top ? GFX_TOP : GFX_BOTTOM, to_top);
 }
 
@@ -1195,6 +1206,7 @@ static const uint8_t *pal(int c) { return palette[c & 15]; }
 static void draw_text_mode_top()
 {
     Canvas &cv = top_cv;
+    g_top_narrow = false;
     cv_fill(cv, 0, 0, 400, 240, 8, 8, 12);
     for (int y = 0; y < GRID_H; ++y)
         for (int x = 0; x < GRID_W; ++x)
@@ -1235,8 +1247,12 @@ static void draw_grid_region(Canvas &cv, const Font &f, int px, int py, int rowh
 
 static void draw_play_top()
 {
-    Canvas &cv = top_cv;
-    cv_fill(cv, 0, 0, 400, 240, 10, 10, 16);
+    // 400 wide on the top screen; 320 wide when swapped onto the touch screen ("In view" shows
+    // tiles only and there is no minimap: the bigger map on top shows both)
+    g_top_narrow = swap_on();
+    const int TW = g_top_narrow ? 320 : 400;
+    Canvas cv = { TW, 240, top_cv.px };
+    cv_fill(cv, 0, 0, TW, 240, 10, 10, 16);
     const crawl_view_geometry &v = crawl_view;
 
     // --- status panel (crawl's HUD text) at 6x13, left
@@ -1288,8 +1304,17 @@ static void draw_play_top()
             blit_tile(cv, ti, mx0, y);
             string desc;
             int col = LIGHTGREY;
-            mons[i].to_string(count, desc, col, false, nullptr, false);
-            draw_text(cv, F_TEXT, mx0 + 19, y + 2, desc.c_str(), pal(col), nullptr, 400 - mx0 - 20);
+            if (!g_top_narrow)
+            {
+                mons[i].to_string(count, desc, col, false, nullptr, false);
+                draw_text(cv, F_TEXT, mx0 + 19, y + 2, desc.c_str(), pal(col), nullptr, 400 - mx0 - 20);
+            }
+            else if (count > 1)   // 320 wide: just the tile and how many
+            {
+                char n[8];
+                snprintf(n, sizeof n, "x%d", std::min(count, 99));
+                draw_text(cv, F_TEXT, mx0 + 19, y + 2, n, C_DIM);
+            }
             ++row;
             i = j;
         }
@@ -1298,7 +1323,8 @@ static void draw_play_top()
     if (!row)
         draw_text(cv, F_TEXT, mx0, my0 + 18, "nothing", C_DIM);
 
-    // --- level minimap (1 px per square), bottom of the right column
+    // --- level minimap (1 px per square), bottom of the right column (not when 320 wide)
+    if (!g_top_narrow)
     {
         const int ox = 400 - GXM - 4, oy = map_oy;
         cv_fill(cv, ox - 2, oy - 2, GXM + 4, GYM + 4, 6, 6, 10);
@@ -1340,10 +1366,10 @@ static void draw_play_top()
     // While the player is typing into the message line, the pane itself is
     // shown so the typed text and cursor appear. Dark colours are lifted so
     // every message reads clearly on the dark panel.
-    cv_fill(cv, 0, msg_top - 2, 400, 1, 60, 60, 80);
-    cv_fill(cv, 0, msg_top - 1, 400, 240 - msg_top + 1, 6, 6, 10);
+    cv_fill(cv, 0, msg_top - 2, TW, 1, 60, 60, 80);
+    cv_fill(cv, 0, msg_top - 1, TW, 240 - msg_top + 1, 6, 6, 10);
     {
-        const int COLS = 400 / F_TEXT.w - 1, LH = 13, INDENT = 2;
+        const int COLS = (TW - 4) / F_TEXT.w - 1, LH = 13, INDENT = 2;
         const int max_lines = (240 - msg_top - 2) / LH;
         struct Ch { char32_t c; int col; bool cursor; };
         std::vector<std::vector<Ch>> lines;
@@ -2036,7 +2062,8 @@ static manual3ds::Manual g_manual;
 
 static void draw_manual()
 {
-    manual3ds::Canvas t = { top_cv.w, top_cv.h, top_cv.px };
+    g_top_narrow = swap_on();
+    manual3ds::Canvas t = { g_top_narrow ? 320 : top_cv.w, top_cv.h, top_cv.px };
     manual3ds::Canvas b = { bot_cv.w, bot_cv.h, bot_cv.px };
     g_manual.draw_top(t);
     g_manual.draw_bottom(b);
@@ -2287,7 +2314,7 @@ static bool port_menu_input(u32 down, u32 rep)
         draw_port_menu();
         pm_act(pm_focus);
     }
-    else if ((down & KEY_TOUCH) && !g_swapped)
+    else if ((down & KEY_TOUCH) && !swap_on())
     {
         touchPosition tp;
         hidTouchRead(&tp);
@@ -2321,10 +2348,14 @@ static void poll_input()
         if (g_manual.active())
             draw_manual();
         else if (pm_open)
+        {
+            if (!crt_mode)
+                draw_top();   // re-lay the dashboard out for its new screen width
             draw_port_menu();
+        }
     }
     down &= ~KEY_ZL;
-    if (g_swapped)
+    if (swap_on())
     {
         // touchpad: slide moves the pointer; a short tap becomes a touch at the pointer this frame
         static bool on = false, moved = false;
