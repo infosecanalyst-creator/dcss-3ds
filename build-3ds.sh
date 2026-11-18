@@ -15,7 +15,7 @@
 set -euo pipefail
 HERE="$(cd "$(dirname "$0")" && pwd)"
 CRAWL_DIR="${CRAWL_DIR:-$HERE/crawl}"
-CRAWL_REF="${CRAWL_REF:-5e89c473da01f5603fbae87a11286a5d52c773e5}"
+CRAWL_REF="${CRAWL_REF:-07a8d25743754f847368dc1d0950c7dd6d4aff9a}"
 JOBS="${JOBS:-$(nproc 2>/dev/null || echo 4)}"
 
 if [ -z "${DEVKITPRO:-}" ]; then
