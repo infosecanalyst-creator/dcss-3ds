@@ -2565,6 +2565,47 @@ static void poll_input()
         cpad_last_key = dk;
     }
 
+    // Rule 13: in crawl's menus (text mode) a row acts when the stylus lifts without moving,
+    // and a vertical drag pages the menu (one page per 48 px: up = next page, like a list
+    // following the stylus). The button bar along the bottom still acts on touch-down.
+    if (crt_mode && !keyboard_overlay)
+    {
+        static bool on = false, dragging = false, pend = false;
+        static button pb;
+        static int y0, ylast, acc;
+        const u32 held = hidKeysHeld();
+        touchPosition tp;
+        if (down & KEY_TOUCH)
+        {
+            touch_read(&tp);
+            on = true; dragging = false; pend = false; acc = 0; y0 = ylast = tp.py;
+            const int b = button_at(tp.px, tp.py);
+            if (tp.py < 240 - 6 - 30 - 2)   // above the bar: decide on lift
+            {
+                if (b >= 0) { pb = buttons[b]; pend = true; pressed_button = b; bottom_dirty = true; }
+                down &= ~KEY_TOUCH;
+            }
+        }
+        else if (on && (held & KEY_TOUCH))
+        {
+            touch_read(&tp);
+            if (!dragging && abs(tp.py - y0) > 6) { dragging = true; pressed_button = -1; bottom_dirty = true; }
+            if (dragging)
+            {
+                acc += ylast - tp.py;
+                while (acc >= 48) { keyq.push_back('>'); acc -= 48; }
+                while (acc <= -48) { keyq.push_back('<'); acc += 48; }
+            }
+            ylast = tp.py;
+        }
+        else if (on)
+        {
+            on = false;
+            if (pend && !dragging) { ui_tap_feedback(); press_button(pb); }
+            pend = false; pressed_button = -1; bottom_dirty = true;
+        }
+    }
+
     if (down & KEY_TOUCH)
     {
         touchPosition tp;
