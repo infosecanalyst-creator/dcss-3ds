@@ -281,6 +281,21 @@ static void cv_blit(const Canvas &c, gfxScreen_t screen, gfx3dSide_t side)
 // and the dashboard comes down at 0.8 so all of it shows. While swapped the touch screen is a
 // touchpad (UI rule 7): slide moves a pointer over the game, a short tap taps where it points.
 static bool g_swapped = false;
+// Rule 16 (remember the setup): the swap is kept in a marker file, like .lefty.
+static const char *kSwapFile = "sdmc:/3ds/crawl/.swapped";
+static void swap_load()
+{
+    static bool loaded = false;
+    if (loaded) return;
+    loaded = true;
+    struct stat sb;
+    g_swapped = stat(kSwapFile, &sb) == 0;
+}
+static void swap_save()
+{
+    if (g_swapped) { if (FILE *f = fopen(kSwapFile, "w")) fclose(f); }
+    else remove(kSwapFile);
+}
 // The swap applies in the dungeon and in the manual. crawl's own text screens (menus, character
 // sheet, the title) are 80 columns of 5-px text: squeezed onto the 320-wide touch screen they
 // can't be read (readability rule, Nov 17 2026), so those stay unswapped.
@@ -2341,9 +2356,11 @@ static void poll_input()
     u32 down = lefty_remap(hidKeysDown());
     const u32 rep  = lefty_remap(hidKeysDownRepeat());
 
+    swap_load();
     if (down & KEY_ZL)
     {
         g_swapped = !g_swapped;
+        swap_save();
         top_dirty = bottom_dirty = true;
         if (g_manual.active())
             draw_manual();
