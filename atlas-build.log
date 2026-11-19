@@ -1,0 +1,25 @@
+make: Entering directory '/tmp/tmp.b671bDTFND/rltiles'
+    * rebuilding tilegen: new build flags or prefix
+    HOSTCXX tool/tile_colour.o
+    HOSTCXX tool/tile.o
+    HOSTCXX tool/tile_page.o
+    HOSTCXX tool/tile_list_processor.o
+    HOSTCXX tool/main.o
+    HOSTLINK tool/tilegen.elf
+    GEN main.png
+    GEN dngn.png
+    GEN floor.png
+    GEN wall.png
+    GEN feat.png
+    GEN player.png
+    GEN gui.png
+    GEN icons.png
+    GEN tiledef-main.cc
+    GEN tiledef-dngn.cc
+    GEN tiledef-floor.cc
+    GEN tiledef-wall.cc
+    GEN tiledef-feat.cc
+    GEN tiledef-gui.cc
+    GEN tiledef-icons.cc
+    GEN tileinfo-player.js
+make: Leaving directory '/tmp/tmp.b671bDTFND/rltiles'

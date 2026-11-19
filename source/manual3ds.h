@@ -58,6 +58,13 @@ struct Input
     bool touch_down = false;  // stylus went down this frame
     int tx = 0, ty = 0;
     int cpad_y = 0;           // -156..156, up positive
+    // Drag to scroll (rule 13). A port that reports the stylus every frame sets has_hold;
+    // then a touch that moves more than 6 px scrolls the text, and buttons act when the
+    // stylus is lifted without moving. Ports that leave has_hold false keep the old
+    // behaviour (buttons act on touch).
+    bool has_hold = false;
+    bool touch_held = false;  // stylus on the screen this frame
+    int hx = 0, hy = 0;       // where it is this frame
 };
 
 // ---------------------------------------------------------------------------
@@ -265,9 +272,26 @@ public:
         }
         else
             m_cpad_acc = 0;
-        if (in.touch_down)
+        if (in.has_hold)
         {
-            const int b = button_at(in.tx, in.ty);
+            if (!drag_update(in))
+                return false;
+        }
+        else if (in.touch_down)
+        {
+            if (!press_at(in.tx, in.ty))
+                return false;
+        }
+        if (m_sec != sec_before)
+            m_click = true;                  // D-Pad / L / R moved to another section
+        return m_active;
+    }
+
+    // A tap on (x, y): the button there acts. Returns false when it closed the manual.
+    bool press_at(int x, int y)
+    {
+        {
+            const int b = button_at(x, y);
             if (b != -1)
             {
                 m_press_btn = b;
@@ -289,9 +313,60 @@ public:
                 m_dirty = true;
             }
         }
-        if (m_sec != sec_before)
-            m_click = true;                  // D-Pad / L / R moved to another section
-        return m_active;
+        return true;
+    }
+
+    // Drag to scroll: 1 line per DRAG_PX of stylus travel, with a little momentum after
+    // the stylus is lifted. Returns false when a tap closed the manual.
+    static const int DRAG_PX = 10;
+    bool drag_update(const Input &in)
+    {
+        if (in.touch_down)
+        {
+            m_drag = 1; m_drag_x0 = in.tx; m_drag_y0 = in.ty; m_drag_s0 = m_scroll;
+            m_drag_last = in.ty; m_vel = 0; m_mom = 0; m_mom_acc = 0;
+            const int b = button_at(in.tx, in.ty);
+            if (b != -1) { m_press_btn = b; m_press_frames = 1 << 20; m_dirty = true; }  // pressed while held
+            return true;
+        }
+        if (m_drag && in.touch_held)
+        {
+            const int dy = in.hy - m_drag_y0, dx = in.hx - m_drag_x0;
+            if (m_drag == 1 && (dy > 6 || dy < -6 || dx > 6 || dx < -6))
+            {
+                m_drag = 2;                                   // a drag, not a tap
+                if (m_press_frames) { m_press_frames = 0; m_dirty = true; }   // no pressed look for a drag
+            }
+            if (m_drag == 2)
+            {
+                scroll(m_drag_s0 - dy / DRAG_PX - m_scroll);
+                m_vel = m_drag_last - in.hy;                  // px per frame, up = positive
+            }
+            m_drag_last = in.hy;
+            return true;
+        }
+        if (m_drag && !in.touch_held)
+        {
+            const int was = m_drag;
+            m_drag = 0;
+            if (was == 1)
+            {
+                m_press_frames = 0;
+                m_dirty = true;
+                return press_at(m_drag_x0, m_drag_y0);       // sets the short pressed look and the click
+            }
+            m_mom = m_vel * 8;                                // coast a little
+            return true;
+        }
+        if (m_mom)
+        {
+            m_mom_acc += m_mom;
+            while (m_mom_acc >= DRAG_PX * 8) { scroll(+1); m_mom_acc -= DRAG_PX * 8; }
+            while (m_mom_acc <= -DRAG_PX * 8) { scroll(-1); m_mom_acc += DRAG_PX * 8; }
+            m_mom = m_mom * 7 / 8;
+            if (m_mom > -2 && m_mom < 2) { m_mom = 0; m_mom_acc = 0; }
+        }
+        return true;
     }
 
     void draw_top(Canvas &cv)
@@ -408,6 +483,7 @@ private:
     int m_bar_focus = 0;
     float m_scale_y = 1.0f;   // 0: sections; 1, 2: the bottom row (toggle, Close) has the D-Pad highlight
     int m_press_btn = -3, m_press_frames = 0;   // touch feedback
+    int m_drag = 0, m_drag_x0 = 0, m_drag_y0 = 0, m_drag_s0 = 0, m_drag_last = 0, m_vel = 0, m_mom = 0, m_mom_acc = 0;   // drag to scroll
 
     int m_view_h = 240;          // height of the last top canvas drawn
     int body_rows() const { return (m_view_h - HEAD - FOOT - 6) / LINE_H; }
@@ -609,6 +685,15 @@ inline Input input_from_hid(int touch_dy = 0)
         in.touch_down = true;
         in.tx = tp.px;
         in.ty = tp.py - touch_dy;
+    }
+    in.has_hold = true;
+    if (hidKeysHeld() & KEY_TOUCH)
+    {
+        touchPosition tp;
+        hidTouchRead(&tp);
+        in.touch_held = true;
+        in.hx = tp.px;
+        in.hy = tp.py - touch_dy;
     }
     circlePosition cp;
     hidCircleRead(&cp);
