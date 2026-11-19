@@ -1508,6 +1508,93 @@ static void draw_play_top()
 // Drawing: bottom screen
 // ===========================================================================
 
+
+// UI rule 14 (critical info where the eyes are): HP and status live on the dashboard,
+// the other screen, so danger also flashes for 3 s in a strip over the top of the map
+// (between the button columns; with ZL it goes up with the map). Each alert is words
+// plus a red or gold edge, never colour alone (rule 20). crawl's own --more-- and
+// yes/no prompts are already on the map screen.
+static char g_alert[48];
+static bool g_alert_danger = false, g_alert_shown = false;
+static u64 g_alert_until = 0, g_alert_at = 0;
+static void alert_push(const char *t, bool danger)
+{
+    const u64 now = osGetTime();
+    if (!danger && g_alert_danger && now < g_alert_until && now - g_alert_at < 1500)
+        return;
+    snprintf(g_alert, sizeof g_alert, "%s", t);
+    g_alert_danger = danger;
+    g_alert_at = now;
+    g_alert_until = now + 3000;
+    bottom_dirty = true;
+}
+static void alert_check()
+{
+    static bool have = false;
+    static int hp = 0, nmons = 0;
+    static bool poisoned = false;
+    if (!you.save || crt_mode || you.hp_max <= 0)
+    {
+        have = false;
+        return;
+    }
+    vector<monster_info> mons;
+    get_nearby_monster_info(mons);
+    int hostile = 0;
+    const monster_info *first = nullptr;
+    for (const monster_info &m : mons)
+        if (m.attitude == ATT_HOSTILE) { if (!first) first = &m; ++hostile; }
+    const bool pois = you.duration[DUR_POISONING] > 0;
+    if (have)
+    {
+        char b[48];
+        if (you.hp < hp && you.hp * 4 <= you.hp_max)
+        {
+            snprintf(b, sizeof b, "! LOW HEALTH  HP %d/%d", you.hp, you.hp_max);
+            alert_push(b, true);
+        }
+        else if (you.hp < hp && (hp - you.hp) * 5 >= you.hp_max)
+        {
+            snprintf(b, sizeof b, "! BIG HIT  -%d HP  (%d/%d)", hp - you.hp, you.hp, you.hp_max);
+            alert_push(b, true);
+        }
+        if (pois && !poisoned)
+            alert_push("! POISONED", true);
+        if (hostile > nmons && first)
+        {
+            snprintf(b, sizeof b, "! %s", first->proper_name(DESC_A).c_str());
+            alert_push(b, true);
+        }
+    }
+    hp = you.hp;
+    nmons = hostile;
+    poisoned = pois;
+    have = true;
+}
+static void alert_draw(Canvas &cv)
+{
+    if (osGetTime() >= g_alert_until)
+        return;
+    const int x0 = BTN_EDGE + BTN_W + 4, w = 320 - 2 * x0;
+    static const uint8_t RED[3] = {255, 80, 64};
+    const uint8_t *acc = g_alert_danger ? RED : C_GOLD;
+    cv_fill(cv, x0, 6, w, 20, 8, 12, 40);
+    cv_fill(cv, x0, 6, 3, 20, acc[0], acc[1], acc[2]);
+    cv_fill(cv, x0 + w - 3, 6, 3, 20, acc[0], acc[1], acc[2]);
+    const int tw = std::min(text_width(F_BOLD, g_alert), w - 10);
+    draw_text(cv, F_BOLD, x0 + (w - tw) / 2, 9, g_alert, acc, nullptr, w - 10);
+    g_alert_shown = true;
+}
+// The strip went out of date: redraw the map without it.
+static void alert_expire()
+{
+    if (g_alert_shown && osGetTime() >= g_alert_until)
+    {
+        g_alert_shown = false;
+        bottom_dirty = true;
+    }
+}
+
 static void draw_play_bottom()
 {
     Canvas &cv = bot_cv;
@@ -1607,7 +1694,7 @@ static void draw_play_bottom()
         const int w = text_width(F_TEXT, m) + 12;
         cv_shade(cv, (320 - w) / 2, 222, w, 16, 0, 0, 0, 190);
         draw_text(cv, F_TEXT, (320 - w) / 2 + 6, 224, m, C_GOLD);
-    }
+    }    alert_draw(cv);
 }
 
 // Bottom screen in text mode: the menu's entries as touch rows.
@@ -3281,6 +3368,7 @@ int getch_ck()
             return k;
         }
         ui_feedback_tick();
+        alert_expire();
         if (crawl_state.seen_hups)
             return ESCAPE;
         if (!g_manual.active() && !pm_open)
@@ -3397,6 +3485,7 @@ void update_screen()
         top_dirty = true;
         bottom_dirty = true;
     }
+    alert_check();
     if (top_dirty)
         draw_top();
     if (bottom_dirty)
