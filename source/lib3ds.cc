@@ -2356,7 +2356,7 @@ static void poll_input()
     u32 down = lefty_remap(hidKeysDown());
     const u32 rep  = lefty_remap(hidKeysDownRepeat());
 
-    swap_load();
+    { const bool was = g_swapped; swap_load(); if (g_swapped != was) top_dirty = bottom_dirty = true; }
     if (down & KEY_ZL)
     {
         g_swapped = !g_swapped;
