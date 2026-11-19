@@ -23,6 +23,10 @@ RSF         := 3ds/crawl.rsf
 3ds/selftest3ds.o: 3ds/selftest3ds.c
 	$(DEVKITARM)/bin/arm-none-eabi-gcc $(ARCH_3DS) -O2 -D__3DS__ -isystem $(DEVKITPRO)/libctru/include -c $< -o $@
 
+# heap set-up: waits for the previous app's memory, leaves 4 MB for the next app (strong symbol over libctru's)
+3ds/heap3ds.o: 3ds/heap3ds.c
+	$(DEVKITARM)/bin/arm-none-eabi-gcc $(ARCH_3DS) -O2 -D__3DS__ -isystem $(DEVKITPRO)/libctru/include -c $< -o $@
+
 romfs: dat/dlua/tags.lua
 	@echo "    ROMFS   $(ROMFS_DIR)/"
 	@rm -rf $(ROMFS_DIR)

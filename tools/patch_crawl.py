@@ -613,7 +613,7 @@ for f in ("lib3ds.cc", "lib3ds.h", "keytext3ds.h", "font5x8.h", "font6x13.h", "f
     shutil.copy(os.path.join(PORT, f), os.path.join(SRC, f))
     print("  + %-14s copied" % f)
 os.makedirs(os.path.join(SRC, "3ds"), exist_ok=True)
-for f in ("crawl.rsf", "icon.png", "selftest3ds.c"):
+for f in ("crawl.rsf", "icon.png", "selftest3ds.c", "heap3ds.c"):
     p = os.path.join(PORT, "3ds", f)
     if os.path.exists(p):
         shutil.copy(p, os.path.join(SRC, "3ds", f))

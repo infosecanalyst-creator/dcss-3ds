@@ -68,7 +68,7 @@ else
   # starts the game with --selftest=<script>.
   SELFTEST_WRAP := hidScanInput hidKeysHeld hidKeysDown hidKeysDownRepeat hidKeysUp hidTouchRead hidCircleRead irrstCstickRead aptMainLoop
   EXTERNAL_LDFLAGS += $(foreach f,$(SELFTEST_WRAP),-Wl,--wrap=$(f))
-  EXTRA_OBJECTS += 3ds/selftest3ds.o
+  EXTRA_OBJECTS += 3ds/selftest3ds.o 3ds/heap3ds.o
   GAME := crawl.elf
 endif # HARNESS_3DS
 endif
