@@ -7,6 +7,11 @@
 // runs (SDL, ScummVM's mixer, or none at all). ndspInit is reference
 // counted by libctru, so sharing it with the game is safe.
 //
+// Volume (Nov 21): Ryan's rule is a very subtle, quiet click. Peak level is
+// kPeak (about 14 % of full scale) and the
+// channel mix is kMix: together 17 dB quieter than the first version. Raise
+// neither without asking.
+//
 // Identical copy in every 3DS repo. Header-only; C++.
 #pragma once
 #ifdef __3DS__
@@ -19,6 +24,7 @@
 namespace click3ds {
 
 static const int kChannel = 23, kRate = 22050, kSamples = 22050 * 28 / 1000;   // 28 ms
+static const float kPeak = 4500.f, kMix = 0.5f;
 
 struct State { bool tried = false, ok = false; int16_t *pcm = nullptr; ndspWaveBuf wb; };
 inline State &state() { static State s; return s; }
@@ -48,7 +54,7 @@ inline bool init() {
         seed = seed * 1664525u + 1013904223u;
         const float noise = ((int)(seed >> 16) - 32768) / 32768.f;
         const float v = (0.75f * sinf(2.f * 3.14159265f * 1900.f * t) + 0.25f * noise) * env;
-        s.pcm[i] = (int16_t)(v * 20000.f);
+        s.pcm[i] = (int16_t)(v * kPeak);
     }
     DSP_FlushDataCache(s.pcm, kSamples * sizeof(int16_t));
     s.ok = true;
@@ -64,7 +70,7 @@ inline void play() {
     ndspChnSetInterp(kChannel, NDSP_INTERP_LINEAR);
     ndspChnSetRate(kChannel, kRate);
     ndspChnSetFormat(kChannel, NDSP_FORMAT_MONO_PCM16);
-    float mix[12] = { 0.8f, 0.8f };
+    float mix[12] = { kMix, kMix };
     ndspChnSetMix(kChannel, mix);
     memset(&s.wb, 0, sizeof(s.wb));
     s.wb.data_vaddr = s.pcm;
