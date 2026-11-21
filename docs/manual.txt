@@ -183,8 +183,8 @@ Effects show in colour on the top screen under your stats: for example Poison, S
 ## The screen is too dark
 Open the keyboard (the "keys" button or SELECT) and tap Bright (or START, then Brightness) to step through five brightness levels (0 is the original look, 2 is the default). Your choice is remembered. The 3DS's own brightness setting in the HOME Menu also helps; power-saving mode dims the screens.
 
-## The first start takes minutes
-Crawl builds its databases and level cache when the game data changes (rarely, with a new version). Other starts take seconds. HOME works while it builds: HOME then Close quits the game cleanly, and the build starts again next time.
+## A start shows "Regenerating" lines
+The game's databases and level cache come ready-made, so every start takes seconds. If a start lists "Regenerating" lines instead, Crawl is building them itself on the SD card: this takes a few minutes, once. HOME works while it builds: HOME then Close quits the game cleanly, and the build starts again next time.
 
 ## The screen looks wrong or a button does nothing
 Press B to back out, then try again. Send a photo of anything that looks broken.

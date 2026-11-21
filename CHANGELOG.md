@@ -2,6 +2,7 @@
 
 ## 2026-11-21
 
+- The first start no longer builds the databases and level cache for minutes: they come ready-made inside the program (about 11 MB more). The old build on the SD card remains as a fallback, and now also lists the databases as it builds them.
 - Long menus page properly: dragging on the touch screen, Pg Up / Pg Dn and L / R now send the keys Crawl's menus really use (before, some of them did nothing).
 - The alert strip names the monster that came into view, and no longer misreads the map edge.
 - The dashboard builds the monster list once per screen update (smoother).

@@ -23,7 +23,15 @@ ifdef HARNESS_3DS
   EXTERNAL_FLAGS += -DSQLITE_THREADSAFE=0 -DSQLITE_OMIT_WAL -DSQLITE_TEMP_STORE=3 -DSQLITE_OMIT_LOAD_EXTENSION -DSQLITE_MAX_MMAP_SIZE=0
   INCLUDES_L += -isystem $(HARNESS_3DS)/fake
   EXTRA_LIBS += $(HARNESS_3DS)/libharness3ds.a -lm
+  # same tile data path as the 3DS build (lib3ds.cc's map needs it)
+  WEBTILES := y
   GAME := crawl-harness
+  ifdef HARNESS_M32
+    # Cache generator (tools/gen_caches.sh): 32-bit little-endian with unsigned
+    # char, like the 3DS, so the files it writes are the files the 3DS writes.
+    EXTERNAL_FLAGS += -m32 -msse2 -mfpmath=sse -funsigned-char
+    EXTERNAL_LDFLAGS += -m32
+  endif
 else
   ifndef DEVKITPRO
     $(error TARGET_3DS build needs DEVKITPRO set, e.g. export DEVKITPRO=/opt/devkitpro)

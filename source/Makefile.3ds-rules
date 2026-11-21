@@ -39,6 +39,12 @@ romfs: dat/dlua/tags.lua
 	@# data fingerprint: crawl rebuilds its caches only when this changes
 	@find $(ROMFS_DIR)/dat/clua $(ROMFS_DIR)/dat/dlua $(ROMFS_DIR)/dat/des $(ROMFS_DIR)/dat/descript \
 	      $(ROMFS_DIR)/dat/database -type f | LC_ALL=C sort | xargs cat | cksum | cut -d' ' -f1 > $(ROMFS_DIR)/stamp.txt
+	@# DC-01: databases and level cache built ahead (tools/gen_caches.sh), shipped only
+	@# when they were made from exactly this data (same stamp); crawl checks it again.
+	@if [ -f 3ds/cache/stamp.txt ] && cmp -s 3ds/cache/stamp.txt $(ROMFS_DIR)/stamp.txt; then \
+	    mkdir -p $(ROMFS_DIR)/cache && cp -r 3ds/cache/db 3ds/cache/des $(ROMFS_DIR)/cache/ \
+	    && echo "    prebuilt caches in romfs: $$(du -sh $(ROMFS_DIR)/cache | cut -f1)"; \
+	else echo '    (no prebuilt caches for this data: the first start builds them on the console)'; fi
 	@mkdir -p $(ROMFS_DIR)/dat/sounds && cp 3ds/sounds/*.pcm $(ROMFS_DIR)/dat/sounds/ 2>/dev/null || true
 	@if [ -f 3ds/tiles16.bin ]; then cp 3ds/tiles16.bin $(ROMFS_DIR)/; else echo '    (no 3ds/tiles16.bin: the map will use glyphs)'; fi
 	@du -sh $(ROMFS_DIR)

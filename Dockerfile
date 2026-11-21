@@ -8,7 +8,7 @@
 FROM devkitpro/devkitarm:latest
 
 RUN apt-get update && DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends \
-        build-essential git perl python3 python3-yaml flex bison pkg-config \
+        build-essential g++-multilib git perl python3 python3-yaml flex bison pkg-config \
         libpng-dev zlib1g-dev python3-numpy python3-pil ca-certificates && \
     rm -rf /var/lib/apt/lists/*
 

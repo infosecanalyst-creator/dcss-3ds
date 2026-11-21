@@ -6,7 +6,7 @@ done as a small platform layer on top of the upstream code rather than a fork.
 DCSS is free software, so no game files need to be supplied (there is nothing to bring): the build
 fetches the upstream source and data itself.
 
-Install: `crawl.3dsx` goes directly in `sdmc:/3ds/` (as `sdmc:/3ds/crawl.3dsx`); the game makes `sdmc:/3ds/crawl/` for saves and settings. Logs there (`boot.log`, `sound.log`, `home.log`, `frame.log`) hold only failures and the exit line unless an empty `sdmc:/3ds/crawl/debug.txt` exists; a log past 1 MB starts over. HOME works during the first-start build.
+Install: `crawl.3dsx` goes directly in `sdmc:/3ds/` (as `sdmc:/3ds/crawl.3dsx`); the game makes `sdmc:/3ds/crawl/` for saves and settings. Logs there (`boot.log`, `sound.log`, `home.log`, `frame.log`) hold only failures and the exit line unless an empty `sdmc:/3ds/crawl/debug.txt` exists; a log past 1 MB starts over. The databases and level cache come prebuilt, so the first start takes seconds; if the game ever builds them itself ("Regenerating" lines), HOME works meanwhile.
 
 *Not affiliated with or endorsed by the DCSS team or Nintendo.*
 
@@ -115,8 +115,33 @@ from crawl's `rltiles` sheets).
 ## Where things live on the 3DS
 
 - Game data: baked into romfs (`romfs:/dat`, `romfs:/settings`, `romfs:/docs`)
+- Text databases and level cache: prebuilt in `romfs:/cache/db` and `romfs:/cache/des` (see below); `sdmc:/3ds/crawl/saves/db` and `saves/des` are only written if the game ever has to build them itself
 - Saves, morgues, rc file: `sdmc:/3ds/crawl/` — put your `init.txt` there
 - Logs: `stdout.txt` (errors), `boot.log` (first line of each launch, failures); an empty `sdmc:/3ds/crawl/debug.txt` adds every boot step, `sound.log` plays/loads and `home.log` (each log starts over past 1 MB)
+
+## Prebuilt databases and level cache
+
+Crawl compiles its description text into SQLite databases and its 146 level
+design files into a cache (index + Lua bytecode) the first time it runs. On
+the console that took minutes, so the build does it instead:
+
+- `tools/gen_caches.sh` (run by `build-3ds.sh`) builds this same code as a
+  32-bit little-endian desktop program (`HARNESS_3DS` + `HARNESS_M32`, fake
+  libctru from `tools/harness/`), runs it with `-builddb`, and checks the
+  result with the same readers the 3DS uses: files current on a second run;
+  loaded straight from `romfs:/cache` with an empty SD card and nothing
+  written; refused and rebuilt on the SD card when the data stamp differs.
+- "Current" is decided by a data stamp, not by file times: `romfs:/stamp.txt`
+  is a checksum of everything in `dat/clua dlua des descript database`, and
+  every romfs file reports it as its modification time. Each database and
+  cache file records the stamp it was built from; a file with another stamp
+  (or another save version, word size, or Lua bytecode layout —
+  `cache/des/luachk.bin`) is ignored and Crawl builds its own copy under
+  `sdmc:/3ds/crawl/saves/`, showing its "Regenerating ..." lines as before.
+- Needs a host compiler that can build 32-bit programs (`g++-multilib`; in
+  the Dockerfile). Without one the build still works and the console builds
+  the caches itself; `CACHES=0` skips the step, `CACHES=require` (CI) fails
+  the build instead.
 
 ## Testing without a 3DS
 

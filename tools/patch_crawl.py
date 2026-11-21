@@ -158,7 +158,7 @@ rw("main.cc",
    "    // launchers and emulators may pass extra arguments (or none at all, argc 0 and no argv);\n"
    "    // crawl would print its help and quit\n"
    "    if (argc < 1 || !argv || !argv[0]) { static char a0[] = \"sdmc:/3ds/crawl.3dsx\"; static char *av[2] = { a0, 0 }; argv = av; }\n"
-   "    argc = 1;\n#endif\n",
+   "#ifndef __3DS_HARNESS__ // the desktop cache generator passes -builddb\n    argc = 1;\n#endif\n#endif\n",
    "lib3ds_early_init();")
 
 
@@ -335,13 +335,17 @@ rw("database.cc",
    "dbm_last_error.c_str()")
 
 # --- PROGRESS_3DS: show first-run DB / map-cache building on the 3DS console ---
+import re as _re
 for _f in ("database.cc", "maps.cc"):
     _p = os.path.join(SRC, _f)
     _t = open(_p, encoding="utf-8").read()
-    _o = "#if defined(DEBUG_DIAGNOSTICS) && !(defined(TARGET_COMPILER_VC) && defined(USE_TILE))\n    printf(\"Regenerating"
-    _n = "#if (defined(DEBUG_DIAGNOSTICS) && !(defined(TARGET_COMPILER_VC) && defined(USE_TILE))) || defined(TARGET_OS_3DS)\n    printf(\"Regenerating"
-    if _o in _t:
-        open(_p, "w", encoding="utf-8").write(_t.replace(_o, _n))
+    # any indentation: the database lines are indented deeper than the map ones and were
+    # missed, so the databases built with nothing on the screen
+    _o = "#if defined(DEBUG_DIAGNOSTICS) && !(defined(TARGET_COMPILER_VC) && defined(USE_TILE))\n"
+    _n = "#if (defined(DEBUG_DIAGNOSTICS) && !(defined(TARGET_COMPILER_VC) && defined(USE_TILE))) || defined(TARGET_OS_3DS)\n"
+    _t2 = _re.sub(_re.escape(_o) + r'([ \t]*printf\("Regenerating)', lambda m: _n + m.group(1), _t)
+    if _t2 != _t:
+        open(_p, "w", encoding="utf-8").write(_t2)
         print("  + %-14s first-run progress on the console" % _f)
 
 # --- DC-02: HOME works while the first start builds the databases / level cache ---
@@ -421,9 +425,9 @@ else:
 # time instead: the installed .3dsx's own mtime (changes only on an update).
 rw("files.cc",
    "time_t file_modtime(const string &file)\n{\n    struct stat filestat;\n",
-   "#if defined(__3DS__) && !defined(__3DS_HARNESS__)\ntime_t lib3ds_romfs_mtime();\n#endif\n"
+   "#if defined(__3DS__) // the desktop cache generator too: same stamp, same caches\ntime_t lib3ds_romfs_mtime();\n#endif\n"
    "time_t file_modtime(const string &file)\n{\n"
-   "#if defined(__3DS__) && !defined(__3DS_HARNESS__)\n"
+   "#if defined(__3DS__)\n"
    "    if (file.compare(0, 6, \"romfs:\") == 0)\n        return lib3ds_romfs_mtime(); // romfs mtime = launch time otherwise\n#endif\n"
    "    struct stat filestat;\n",
    "lib3ds_romfs_mtime(); // romfs mtime")
@@ -435,7 +439,8 @@ rw("files.cc",
 # the chunk's source text instead; the 3DS compiles it when the map is used.
 rw("dlua.cc",
    "    if (!compiled.empty())\n    {\n        marshallByte(outf, CT_COMPILED);\n",
-   "#ifdef __3DS_HARNESS__\n    if (!chunk.empty())   // portable cache: source, not x86 bytecode\n    {\n"
+   "#if defined(__3DS_HARNESS__) && !defined(__ILP32__) // a 32-bit generator (HARNESS_M32) writes the 3DS's own bytecode\n"
+   "    if (!chunk.empty())   // portable cache: source, not x86 bytecode\n    {\n"
    "        marshallByte(outf, CT_SOURCE);\n        marshallString4(outf, chunk);\n    }\n    else\n#endif\n"
    "    if (!compiled.empty())\n    {\n        marshallByte(outf, CT_COMPILED);\n",
    "portable cache: source, not x86 bytecode")
@@ -445,6 +450,120 @@ rw("maps.cc",
    "    time_t mtime = file_modtime(s); // by path, like the check (3DS: romfs stamp)\n    _reset_map_parser();\n",
    "file_modtime(s); // by path")
 
+
+# ------------------------------------------- DC-01: prebuilt caches in romfs
+# The first start built the text databases and the level cache on the console,
+# for minutes. CI now builds them (tools/gen_caches.sh: this same code as a
+# 32-bit little-endian desktop program, run with -builddb) and the .3dsx ships
+# them in romfs:/cache/. They are used while they match this build's data
+# stamp (romfs:/stamp.txt, a checksum of the data files -- the "mtime" every
+# romfs file reports, see above); anything else falls back to the caches on
+# the SD card, which are built there as before.
+rw("database.cc",
+   "bool TextDB::open_db()\n{\n    if (_db)\n        return true;\n\n",
+   "#ifdef __3DS__\n"
+   "static bool _3ds_no_prebuilt_db = false; // DC-01: set once a romfs database is missing or stale\n"
+   "#endif\n\n"
+   "bool TextDB::open_db()\n{\n    if (_db)\n        return true;\n\n"
+   "#ifdef __3DS__\n"
+   "    // DC-01: the database shipped in romfs, while its TIMESTAMP row matches this build's data\n"
+   "    if (!_parent && !_3ds_no_prebuilt_db)\n    {\n"
+   "        const string pre = string(\"romfs:/cache/db/\") + _db_name;\n"
+   "        if (file_exists(pre + \".db\") && (_db = dbm_open(pre.c_str(), O_RDONLY, 0660)))\n        {\n"
+   "            timestamp = _query_database(*this, \"TIMESTAMP\", false, false, true);\n"
+   "            if (!timestamp.empty() && !_needs_update())\n            {\n"
+   "                static bool said = false;\n"
+   "                if (!said)\n                    lib3ds_boot_mark(\"DC-01: databases from romfs:/cache/db\");\n"
+   "                said = true;\n"
+   "                return true;\n            }\n"
+   "            dbm_close(_db);\n            _db = nullptr;\n            timestamp.clear();\n"
+   "            lib3ds_boot_mark(\"DC-01: romfs database refused (other data stamp or unreadable): FAILED, building on the SD card\");\n"
+   "        }\n"
+   "        _3ds_no_prebuilt_db = true;\n    }\n"
+   "#endif\n\n",
+   "_3ds_no_prebuilt_db = false;")
+
+rw("maps.cc",
+   "string get_descache_path(const string &file, const string &ext)\n{\n"
+   "    const string basename = change_file_extension(get_base_filename(file), ext);\n",
+   "#ifdef __3DS__\n"
+   "// DC-01: level cache files shipped in romfs:/cache/des (made by tools/gen_caches.sh).\n"
+   "// Their Lua is bytecode, so they are only used when this build's Lua writes the\n"
+   "// same bytes for a fixed chunk as the generator did (luachk.bin).\n"
+   "static set<string> _3ds_prebuilt_des;   // cache names loaded from romfs\n\n"
+   "static string _3ds_lua_probe()\n{\n"
+   "    dlua_chunk c(\"probe\");\n"
+   "    c.add(1, \"local t = {1, 2.5, 'x'}\");\n"
+   "    c.add(2, \"return function(a) return a + #t end\");\n"
+   "    lua_stack_cleaner cln(dlua);\n"
+   "    if (c.load(dlua))\n        return \"\";\n"
+   "    return c.compiled_chunk();\n}\n\n"
+   "static bool _3ds_prebuilt_des_ok()\n{\n"
+   "    static int ok = -1;\n"
+   "    if (ok < 0)\n    {\n"
+   "        ok = 0;\n"
+   "        const string probe = _3ds_lua_probe();\n"
+   "        if (FILE *f = fopen_u(\"romfs:/cache/des/luachk.bin\", \"rb\"))\n        {\n"
+   "            char buf[1024];\n"
+   "            const size_t n = fread(buf, 1, sizeof buf, f);\n"
+   "            fclose(f);\n"
+   "            ok = !probe.empty() && n == probe.size() && !memcmp(buf, probe.data(), n);\n"
+   "            lib3ds_boot_mark(ok ? \"DC-01: level cache from romfs:/cache/des\"\n"
+   "                                : \"DC-01: romfs level cache refused (Lua bytecode differs): FAILED, building on the SD card\");\n"
+   "        }\n    }\n"
+   "    return ok == 1;\n}\n\n"
+   "static string _3ds_des_key(const string &file)\n{\n"
+   "    return change_file_extension(get_base_filename(file), \"\");\n}\n"
+   "#endif\n\n"
+   "string get_descache_path(const string &file, const string &ext)\n{\n"
+   "    const string basename = change_file_extension(get_base_filename(file), ext);\n"
+   "#ifdef __3DS__\n"
+   "    if (_3ds_prebuilt_des.count(_3ds_des_key(file)))\n"
+   "        return \"romfs:/cache/des/\" + basename;\n"
+   "#endif\n",
+   "_3ds_prebuilt_des;   // cache names loaded from romfs")
+
+rw("maps.cc",
+   "    if (!crawl_state.use_des_cache)\n        return false;\n\n"
+   "    const string descache_base = get_descache_path(cachename, \"\");\n\n"
+   "    file_lock deslock(descache_base + \".lk\", \"rb\", false);\n",
+   "    if (!crawl_state.use_des_cache)\n        return false;\n\n"
+   "#ifdef __3DS__\n"
+   "    // DC-01: the copy shipped in romfs, under the same checks as the SD copy\n"
+   "    if (_3ds_prebuilt_des_ok())\n    {\n"
+   "        const string key = _3ds_des_key(cachename);\n"
+   "        const string pre = \"romfs:/cache/des/\" + key;\n"
+   "        const time_t pmtime = file_modtime(filename);\n"
+   "        if (_verify_map_index(pre, pmtime) && _verify_map_full(pre, pmtime))\n        {\n"
+   "            const size_t nvdefs = vdefs.size(), npreludes = global_preludes.size();\n"
+   "            _3ds_prebuilt_des.insert(key);\n"
+   "            if (_load_map_index(cachename, pre, pmtime))\n                return true;\n"
+   "            _3ds_prebuilt_des.erase(key);\n"
+   "            lib3ds_boot_mark(\"DC-01: romfs level cache file unreadable: FAILED, building it on the SD card\");\n"
+   "            vdefs.resize(nvdefs, map_def());\n"
+   "            global_preludes.resize(npreludes);\n"
+   "        }\n    }\n"
+   "#endif\n\n"
+   "    const string descache_base = get_descache_path(cachename, \"\");\n\n"
+   "    file_lock deslock(descache_base + \".lk\", \"rb\", false);\n",
+   "the copy shipped in romfs, under the same checks")
+
+# the generator leaves its Lua probe next to the cache files it writes
+rw("maps.cc",
+   "    file_lock deslock(descache_base + \".lk\", \"wb\");\n\n"
+   "    _write_map_prelude(descache_base, mtime);\n",
+   "    file_lock deslock(descache_base + \".lk\", \"wb\");\n\n"
+   "#ifdef __3DS_HARNESS__\n"
+   "    {\n        static bool probe_written = false;\n"
+   "        if (!probe_written)\n        {\n"
+   "            probe_written = true;\n"
+   "            const string probe = _3ds_lua_probe();\n"
+   "            if (FILE *f = fopen_u(_des_cache_dir(\"luachk.bin\").c_str(), \"wb\"))\n            {\n"
+   "                fwrite(probe.data(), 1, probe.size(), f);\n"
+   "                fclose(f);\n            }\n        }\n    }\n"
+   "#endif\n"
+   "    _write_map_prelude(descache_base, mtime);\n",
+   "static bool probe_written = false;")
 
 # -------------------------------------------------- messages for the 3DS top
 # The 3DS dashboard shows messages in a bigger font (66 columns). Re-wrapping

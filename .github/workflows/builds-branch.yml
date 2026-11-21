@@ -20,11 +20,12 @@ jobs:
       - name: Tools
         run: |
           apt-get update -qq
-          apt-get install -y -qq git python3 python3-yaml perl flex bison pkg-config libpng-dev zlib1g-dev python3-numpy python3-pil build-essential ca-certificates >/dev/null
+          apt-get install -y -qq git python3 python3-yaml perl flex bison pkg-config libpng-dev zlib1g-dev python3-numpy python3-pil build-essential g++-multilib ca-certificates >/dev/null
           git config --global --add safe.directory '*'
       - uses: actions/checkout@v4
       - name: Build
-        run: bash ./build-3ds.sh 2>&1 | tee build.log; test -f out/3ds/crawl.3dsx
+        # CACHES=require: the databases and level cache must be prebuilt and packed (DC-01), or no .3dsx comes out
+        run: CACHES=require bash ./build-3ds.sh 2>&1 | tee build.log; test -f out/3ds/crawl.3dsx
       - name: Build .cia (124 MB extended memory; for emulators and FBI)
         continue-on-error: true
         run: |

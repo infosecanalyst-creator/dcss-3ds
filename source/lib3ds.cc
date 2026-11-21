@@ -3060,12 +3060,20 @@ void lib3ds_early_init()
     // the screens over later.
     consoleInit(GFX_BOTTOM, nullptr);
     printf("Dungeon Crawl Stone Soup for 3DS\n\n");
-    printf("The first start builds the game databases\n");
-    printf("and level cache: this takes a few minutes.\n\n");
 
     Result rc = romfsInit();
     if (R_FAILED(rc))
         printf("romfsInit failed: %08X\n", (unsigned)rc);
+    // DC-01: the databases and level cache come prebuilt in romfs:/cache; only a build
+    // without them (or with other data files) builds them here on the first start.
+    {
+        struct stat cst;
+        if (stat("romfs:/cache/des/luachk.bin", &cst) != 0)
+        {
+            printf("The first start builds the game databases\n");
+            printf("and level cache: this takes a few minutes.\n\n");
+        }
+    }
 
     boot_mark(R_FAILED(rc) ? "early_init: romfsInit FAILED" : "early_init: romfsInit ok");
     mkdir("sdmc:/3ds", 0777);

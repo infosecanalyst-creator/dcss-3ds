@@ -68,9 +68,33 @@ if [ ! -f "$SRC/3ds/tiles16.bin" ]; then
     fi
 fi
 
+# DC-01: databases + level cache built here, shipped in romfs:/cache, so the first
+# start on the console does not build them for minutes (tools/gen_caches.sh).
+# CACHES=0 skips this (the console then builds them itself, as before);
+# CACHES=require (CI) fails the build when they could not be made.
+CACHES="${CACHES:-auto}"
+rm -rf "$SRC/3ds/cache"
+if [ "$CACHES" != 0 ]; then
+    if bash "$HERE/tools/gen_caches.sh" "$CRAWL_DIR"; then
+        :
+    elif [ "$CACHES" = require ]; then
+        echo "prebuilt caches are required (CACHES=require) and could not be made" >&2
+        exit 1
+    else
+        echo "==> no prebuilt caches: the first start on the console will build them"
+        rm -rf "$SRC/3ds/cache"
+    fi
+fi
+
 echo "==> building crawl.3dsx with $JOBS jobs"
 make -C "$SRC" TARGET_3DS=y PORT_VERSION="$PORT_VERSION" -j"$JOBS" 3dsx 2>&1 | tee "$HERE/build-3ds.log"
 
+if [ -d "$SRC/romfs/cache" ]; then
+    echo "==> prebuilt caches shipped: $(du -sh "$SRC/romfs/cache" | cut -f1) of $(du -sh "$SRC/crawl.3dsx" | cut -f1) (.3dsx)"
+elif [ "$CACHES" = require ]; then
+    echo "prebuilt caches were made but not packed into romfs (data stamp differs?)" >&2
+    exit 1
+fi
 OUT="$HERE/out"
 mkdir -p "$OUT/3ds"
 # The .3dsx lives directly in /3ds on the SD card (/3ds/crawl.3dsx); saves and
