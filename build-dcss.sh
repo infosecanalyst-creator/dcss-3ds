@@ -18,6 +18,7 @@ LOG=$PWD/dcss-build.log; : > "$LOG"
   make TARGET_3DS=y -j"$(nproc)" 3dsx
   echo "EXIT: $?"
   mkdir -p /c/devkitPro/3ds-projects/SD-CARD/3ds/crawl
-  [ -f crawl.3dsx ] && mv -f crawl.3dsx /c/devkitPro/3ds-projects/SD-CARD/3ds/crawl/ && echo "moved to SD-CARD/3ds/crawl/"
-  ls -la /c/devkitPro/3ds-projects/SD-CARD/3ds/crawl/
+  # the .3dsx lives directly in /3ds (SD:/3ds/crawl.3dsx); /3ds/crawl/ keeps saves and settings
+  [ -f crawl.3dsx ] && mv -f crawl.3dsx /c/devkitPro/3ds-projects/SD-CARD/3ds/crawl.3dsx && echo "moved to SD-CARD/3ds/crawl.3dsx"
+  ls -la /c/devkitPro/3ds-projects/SD-CARD/3ds/crawl.3dsx
 } 2>&1 | tee -a "$LOG"

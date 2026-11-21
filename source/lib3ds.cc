@@ -2917,7 +2917,7 @@ time_t lib3ds_romfs_mtime()
                        ? __system_argv[0] : nullptr;
     if (self && !stat(self, &st) && st.st_mtime > 0)
         t = st.st_mtime;
-    else if (!stat("sdmc:/3ds/crawl/crawl.3dsx", &st) && st.st_mtime > 0)
+    else if (!stat("sdmc:/3ds/crawl.3dsx", &st) && st.st_mtime > 0)
         t = st.st_mtime;
     else
         t = 1700000000;   // no executable to look at: one fixed value

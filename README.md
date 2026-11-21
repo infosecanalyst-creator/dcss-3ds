@@ -39,8 +39,9 @@ docker run --rm -v "${PWD}:/work" dcss-3ds ./build-3ds.sh
 
 First run clones crawl into `dcss-3ds/crawl`, pulls the four contrib libs
 (Lua, PCRE, SQLite, zlib — all built for ARM), patches, and builds
-`out/3ds/crawl/crawl.3dsx`. Copy `out/3ds` onto the SD card root and launch
-from the Homebrew Launcher.
+`out/3ds/crawl.3dsx`. Copy it to `sdmc:/3ds/crawl.3dsx` (directly in `/3ds`, not
+in the game folder; FTP it with ftpd) and launch from the Homebrew Launcher.
+The game creates its own folder `sdmc:/3ds/crawl/` for saves and settings.
 
 ### Native devkitPro
 

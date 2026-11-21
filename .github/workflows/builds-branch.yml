@@ -19,7 +19,7 @@ jobs:
           git config --global --add safe.directory '*'
       - uses: actions/checkout@v4
       - name: Build
-        run: bash ./build-3ds.sh 2>&1 | tee build.log; test -f out/3ds/crawl/crawl.3dsx
+        run: bash ./build-3ds.sh 2>&1 | tee build.log; test -f out/3ds/crawl.3dsx
       - name: Build .cia (124 MB extended memory; for emulators and FBI)
         continue-on-error: true
         run: |
@@ -34,7 +34,7 @@ jobs:
         if: always()
         run: |
           mkdir -p out
-          cp out/3ds/crawl/crawl.3dsx out/ 2>/dev/null || true
+          cp out/3ds/crawl.3dsx out/ 2>/dev/null || true
           cp crawl.cia cia.log out/ 2>/dev/null || true
           cp build.log build-3ds.log out/ 2>/dev/null || true
           echo "$GITHUB_SHA" > out/SOURCE_COMMIT

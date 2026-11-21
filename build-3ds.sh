@@ -70,8 +70,11 @@ echo "==> building crawl.3dsx with $JOBS jobs"
 make -C "$SRC" TARGET_3DS=y -j"$JOBS" 3dsx 2>&1 | tee "$HERE/build-3ds.log"
 
 OUT="$HERE/out"
-mkdir -p "$OUT/3ds/crawl"
-cp "$SRC/crawl.3dsx" "$SRC/crawl.smdh" "$OUT/3ds/crawl/"
+mkdir -p "$OUT/3ds"
+# The .3dsx lives directly in /3ds on the SD card (/3ds/crawl.3dsx); saves and
+# settings stay in the game folder /3ds/crawl/, which the game creates itself.
+rm -rf "$OUT/3ds/crawl"
+cp "$SRC/crawl.3dsx" "$OUT/3ds/"
 echo
-echo "==> done: $OUT/3ds/crawl/crawl.3dsx"
-echo "    copy the out/3ds folder to the root of the SD card and launch from the Homebrew Launcher"
+echo "==> done: $OUT/3ds/crawl.3dsx"
+echo "    copy it to sdmc:/3ds/crawl.3dsx (FTP via ftpd) and launch from the Homebrew Launcher"
