@@ -426,7 +426,28 @@ public:
             fill(cv, bx, ty, 3, th, 150, 150, 200);
         }
         fill(cv, 0, cv.h - FOOT, cv.w, FOOT, 24, 24, 38);
-        text(cv, 8, cv.h - FOOT + 2, m_footer.empty() ? "Sticks: scroll   D-Pad, L / R: section   B / START: close" : m_footer.c_str(), C_DIM);
+        {
+            // The house footer wording. On a narrower canvas (320 px: OpenXcom, or a port's swapped
+            // screens) the same words are spelled tighter, so the line is never cut off.
+            std::string f = m_footer.empty() ? "Sticks: scroll   D-Pad, L / R: section   B / START: close" : m_footer;
+            auto swap_all = [&f](const char *from, const char *to)
+            {
+                const size_t fl = strlen(from), tl = strlen(to);
+                for (size_t p = f.find(from); p != std::string::npos; p = f.find(from, p + tl))
+                    f.replace(p, fl, to);
+            };
+            int fx = 8;
+            if (fx + REG.w * ulen(f) > cv.w)
+            {
+                swap_all("   ", "  "); swap_all(" / ", "/"); swap_all("A/B/X/Y", "ABXY");
+            }
+            if (fx + REG.w * ulen(f) > cv.w)
+            {
+                swap_all(":", ""); swap_all("D-Down", "D-Dn");
+                fx = 4;
+            }
+            text(cv, fx, cv.h - FOOT + 2, f, C_DIM);
+        }
         m_dirty = false;
     }
 
