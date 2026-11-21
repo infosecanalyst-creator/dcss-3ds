@@ -1154,7 +1154,7 @@ static bool more_prompt_visible()
 
 // Menu entries in text mode: "x - text", "x + text", "x # text", "x) text",
 // "x. text" or "x: text", possibly several per row (multi-column menus).
-struct menu_entry { int key; int row; int col; int tcol; int tend; bool dashed; bool named = false; };   // dashed: "x - text" style; named: on Bksp, Tab...
+struct menu_entry { int key; int row; int col; int tcol; int tend; bool dashed; bool named; };   // dashed: "x - text" style; named: on Bksp, Tab...
 
 static bool menu_key_char(char32_t k)
 {
