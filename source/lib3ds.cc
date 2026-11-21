@@ -3088,10 +3088,11 @@ void lib3ds_early_init()
 // build goes on when you come back); HOME -> Close quits at once, before any game is loaded
 // (each database is written with its TIMESTAMP row last, so a half-built one is built again
 // next time). Inside a game it takes crawl's own hangup road (save and exit) instead.
+static bool lib3ds_apt_loop();
 void lib3ds_build_pump()
 {
 #ifndef __3DS_HARNESS__
-    if (aptMainLoop())
+    if (lib3ds_apt_loop())
         return;
     if (you.save)
     {
@@ -3160,34 +3161,51 @@ static void home_log(const char *what)
             (void *)ci.screencapture[1].framebuf1_vaddr);
     fclose(f);
 }
-static void home_hook(APT_HookType type, void *)
+// The hand-off work (present a plain frame, close the save file). No work in APT hooks
+// (house rule, Nov 20 2026: libctru runs ONSUSPEND inside aptJumpToHomeMenu): the normal
+// road is lib3ds_apt_loop() below, which does this on the main thread BEFORE aptMainLoop()
+// jumps to the HOME Menu. The hook only repeats it if that road was somehow not taken.
+static bool home_prepped = false;
+static void home_prep(bool close_save)
 {
-    static const char *names[] = { "suspend", "restore", "sleep", "wakeup", "exit" };
-    home_log(type >= 0 && type < 5 ? names[type] : "?");
     if (!inited)
         return;
+    gfxSet3D(false);
+    gfxSetDoubleBuffering(GFX_TOP, true);
+    gfxSetDoubleBuffering(GFX_BOTTOM, true);
+    for (int i = 0; i < 2; ++i)
+    {
+        cv_blit(top_cv, GFX_TOP, GFX_LEFT);
+        cv_blit(bot_cv, GFX_BOTTOM, GFX_LEFT);
+        gfxFlushBuffers();
+        gfxSwapBuffers();
+        gspWaitForVBlank();
+    }
+    if (close_save && you.save)
+    {
+        you.save->lib3ds_close_fd();   // see package.cc: HOME Menu + open save
+        home_log("save file closed");
+    }
+    home_log("suspend-ready");
+}
+static void home_hook(APT_HookType type, void *)
+{
     if (type == APTHOOK_ONSUSPEND || type == APTHOOK_ONEXIT)
     {
-        gfxSet3D(false);
-        gfxSetDoubleBuffering(GFX_TOP, true);
-        gfxSetDoubleBuffering(GFX_BOTTOM, true);
-        for (int i = 0; i < 2; ++i)
+        if (type == APTHOOK_ONEXIT && home_prepped)
+            home_log("exit");   // the one line kept without debug.txt (DC-08)
+        if (!home_prepped)   // fallback only (an applet jump that did not come through lib3ds_apt_loop)
         {
-            cv_blit(top_cv, GFX_TOP, GFX_LEFT);
-            cv_blit(bot_cv, GFX_BOTTOM, GFX_LEFT);
-            gfxFlushBuffers();
-            gfxSwapBuffers();
-            gspWaitForVBlank();
+            static const char *names[] = { "suspend", "restore", "sleep", "wakeup", "exit" };
+            home_log(type >= 0 && type < 5 ? names[type] : "?");
+            home_prep(type == APTHOOK_ONSUSPEND);
         }
-        if (type == APTHOOK_ONSUSPEND && you.save)
-        {
-            you.save->lib3ds_close_fd();   // see package.cc: HOME Menu + open save
-            home_log("save file closed");
-        }
-        home_log("suspend-ready");
     }
     else if (type == APTHOOK_ONRESTORE || type == APTHOOK_ONWAKEUP)
     {
+        home_prepped = false;
+        if (!inited)
+            return;
         if (you.save)
             you.save->lib3ds_reopen_fd();
         gfxSet3D(true);
@@ -3195,6 +3213,20 @@ static void home_hook(APT_HookType type, void *)
     }
 }
 #endif
+
+// aptMainLoop() with the HOME hand-off done first, on the main thread.
+static bool lib3ds_apt_loop()
+{
+#ifndef __3DS_HARNESS__
+    if (!home_prepped && aptShouldJumpToHome())
+    {
+        home_log("suspend");
+        home_prep(true);
+        home_prepped = true;
+    }
+#endif
+    return aptMainLoop();
+}
 
 void console_startup()
 {
@@ -3503,7 +3535,7 @@ int getch_ck()
     {
         if (crawl_state.seen_hups)
             return ESCAPE;
-        if (!aptMainLoop())
+        if (!lib3ds_apt_loop())
         {
             // HOME -> close: treat like a hangup so crawl saves and exits.
             if (you.save)
@@ -3544,7 +3576,7 @@ bool kbhit()
         return false;
     if (keyq.empty() && tapq.empty())
     {
-        if (!aptMainLoop())
+        if (!lib3ds_apt_loop())
         {
             if (you.save)
                 you.save->lib3ds_reopen_fd();
