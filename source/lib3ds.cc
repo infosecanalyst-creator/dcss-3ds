@@ -2590,8 +2590,9 @@ static void poll_input()
     // and a vertical drag pages the menu (one page per 48 px: up = next page, like a list
     // following the stylus). The button bar along the bottom still acts on touch-down.
     // (DC-07: the state lives outside the block, so a touch that outlives the menu is dropped, not
-    // replayed later as a stale button press; paging uses PgUp/PgDn, which do nothing in the game,
-    // where '<' and '>' would climb or descend the stairs.)
+    // replayed later as a stale button press, and no '<' / '>' paging key is sent once the menu has
+    // closed, where those keys would climb or descend the stairs; crawl's menus take only '<' / '>'
+    // for paging, PgUp/PgDn are the game's diagonal moves.)
     static bool on = false, dragging = false, pend = false;
     static button pb;
     static int y0, ylast, acc, bx0, by0;
@@ -2623,8 +2624,8 @@ static void poll_input()
             if (dragging)
             {
                 acc += ylast - tp.py;
-                while (acc >= 48) { keyq.push_back(CK_PGDN); acc -= 48; }
-                while (acc <= -48) { keyq.push_back(CK_PGUP); acc += 48; }
+                while (acc >= 48) { keyq.push_back('>'); acc -= 48; }
+                while (acc <= -48) { keyq.push_back('<'); acc += 48; }
             }
             ylast = tp.py;
         }
