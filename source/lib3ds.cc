@@ -1146,7 +1146,7 @@ static bool more_prompt_visible()
 
 // Menu entries in text mode: "x - text", "x + text", "x # text", "x) text",
 // "x. text" or "x: text", possibly several per row (multi-column menus).
-struct menu_entry { int key; int row; int col; int tcol; int tend; };
+struct menu_entry { int key; int row; int col; int tcol; int tend; bool dashed; };   // dashed: "x - text" style
 
 static bool menu_key_char(char32_t k)
 {
@@ -1181,7 +1181,7 @@ static std::vector<menu_entry> find_menu_entries()
                 ++t;
             if (t >= GRID_W || grid[y][t].glyph == ' ')
                 continue;
-            row.push_back({ (int)k, y, x, t, GRID_W });
+            row.push_back({ (int)k, y, x, t, GRID_W, a == ' ' });
             x = t;
         }
         for (size_t i = 0; i < row.size(); ++i)
@@ -1191,8 +1191,10 @@ static std::vector<menu_entry> find_menu_entries()
             out.push_back(row[i]);
         }
     }
-    // a lone match is usually prose, not a menu
-    if (out.size() < 2)
+    // a lone "x) text" / "x. text" / "x: text" match is usually prose, not a menu;
+    // a lone "x - text" (also + # =) is a real one-item menu (a single item to pick up,
+    // drop, wield...) and gets its button instead of the keyboard (DC-06)
+    if (out.size() == 1 && !(out[0].dashed && isalpha(out[0].key)))
         out.clear();
     // column-major, like the menu reads on the top screen; a footer block
     // (after a gap of blank rows: "+ - Recommended...", "? - Help") goes last
