@@ -2349,7 +2349,8 @@ static void draw_port_menu()
     }
     cv_fill(cv, 0, 224, 320, 16, 40, 56, 120);
     cv_fill(cv, 0, 224, 320, 1, 120, 150, 230);
-    const char *hint = pm_page == 0 ? "A Select   B Back   ZL Swap" : "A Select   B Back";
+    // crawl's own text screens (title, menus) never swap (swap_on), so ZL is only offered where it shows
+    const char *hint = pm_page == 0 && !crt_mode ? "A Select   B Back   ZL Swap" : "A Select   B Back";
     draw_text(cv, F_SMALL, (320 - text_width(F_SMALL, hint)) / 2, 228, hint, C_HDR);
     cv_present(top_cv);
     cv_present(bot_cv);
