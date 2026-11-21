@@ -47,6 +47,9 @@
 // libctru's default main-thread stack is only 32 KB; crawl builds a whole
 // `player` (and other big objects) on the stack. Give it 4 MB.
 extern "C" { u32 __stacksize__ = 4 * 1024 * 1024; }
+// (declared here so -Wmissing-declarations is quiet; other files declare them where they call them)
+time_t lib3ds_romfs_mtime();
+void lib3ds_fatal_wait(const char *msg);
 
 #include "cio.h"
 #include "command.h"
