@@ -95,6 +95,9 @@ vector<pair<formatted_string, int>> lib3ds_recent_messages(int mcount);
 #include "font6x13b.h"
 #include "manual3ds.h"
 #include "manual_text.h"
+#ifndef PORT_VERSION
+#define PORT_VERSION "unknown"
+#endif
 
 // ===========================================================================
 // Text grid: crawl believes it draws into an 80x24 terminal.
@@ -2329,6 +2332,8 @@ static void draw_port_menu()
     if (pm_page == 0)
     {
         draw_text(cv, F_BOLD, 8, 5, "MENU", C_HDR);
+        const char *ver = "Build " PORT_VERSION;
+        draw_text(cv, F_SMALL, 320 - 8 - text_width(F_SMALL, ver), 7, ver, C_WHITE);
         for (int i = 0; i < kPmCount; ++i)
             pm_button(cv, i, kPmItems[i]);
     }

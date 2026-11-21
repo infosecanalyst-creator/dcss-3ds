@@ -14,6 +14,8 @@
 # Needs DEVKITPRO set (the Docker image sets it). Run from the dcss-3ds folder.
 set -euo pipefail
 HERE="$(cd "$(dirname "$0")" && pwd)"
+# Port version (this repo, not crawl) for the START menu; taken before anything is built.
+PORT_VERSION="$(git -C "$HERE" describe --always --dirty 2>/dev/null || echo unknown)"
 CRAWL_DIR="${CRAWL_DIR:-$HERE/crawl}"
 CRAWL_REF="${CRAWL_REF:-07a8d25743754f847368dc1d0950c7dd6d4aff9a}"
 JOBS="${JOBS:-$(nproc 2>/dev/null || echo 4)}"
@@ -67,7 +69,7 @@ if [ ! -f "$SRC/3ds/tiles16.bin" ]; then
 fi
 
 echo "==> building crawl.3dsx with $JOBS jobs"
-make -C "$SRC" TARGET_3DS=y -j"$JOBS" 3dsx 2>&1 | tee "$HERE/build-3ds.log"
+make -C "$SRC" TARGET_3DS=y PORT_VERSION="$PORT_VERSION" -j"$JOBS" 3dsx 2>&1 | tee "$HERE/build-3ds.log"
 
 OUT="$HERE/out"
 mkdir -p "$OUT/3ds"
@@ -75,6 +77,13 @@ mkdir -p "$OUT/3ds"
 # settings stay in the game folder /3ds/crawl/, which the game creates itself.
 rm -rf "$OUT/3ds/crawl"
 cp "$SRC/crawl.3dsx" "$OUT/3ds/"
+# Symbols for reading crash addresses: demangled nm map, plus the gzipped ELF (addr2line)
+# when it is small enough for the builds branch.
+ELF="$SRC/crawl"; [ -f "$SRC/crawl.elf" ] && ELF="$SRC/crawl.elf"
+arm-none-eabi-nm -C -n "$ELF" | gzip -9 > "$OUT/crawl.sym.gz"
+gzip -9c "$ELF" > "$OUT/crawl.elf.gz"
+[ "$(stat -c%s "$OUT/crawl.elf.gz")" -lt 50000000 ] || rm -f "$OUT/crawl.elf.gz"
+echo "==> port version $PORT_VERSION"
 echo
 echo "==> done: $OUT/3ds/crawl.3dsx"
 echo "    copy it to sdmc:/3ds/crawl.3dsx (FTP via ftpd) and launch from the Homebrew Launcher"

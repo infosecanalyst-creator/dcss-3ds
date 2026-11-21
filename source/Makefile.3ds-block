@@ -46,6 +46,9 @@ else
   SAVEDIR :=
   # The game data is baked into romfs; saves live on the SD card.
   INSTALL_PATH_CFLAGS_L += -DDATA_DIR_PATH=\"romfs:/\" -DSAVE_DIR_PATH=\"sdmc:/3ds/crawl\"
+  # Port version for the START menu header (build-3ds.sh passes git describe of dcss-3ds)
+  PORT_VERSION ?= unknown
+  EXTERNAL_FLAGS += -DPORT_VERSION=\"$(PORT_VERSION)\"
   ARCH_3DS := -march=armv6k -mtune=mpcore -mfloat-abi=hard -mtp=soft
   EXTERNAL_FLAGS += $(ARCH_3DS) -D__3DS__ -DARM11 -D_GNU_SOURCE -D_DEFAULT_SOURCE -ffunction-sections -fdata-sections -fomit-frame-pointer
   # arm-none-eabi types int32_t as 'long'; crawl (like every platform it
