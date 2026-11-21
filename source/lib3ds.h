@@ -14,6 +14,10 @@
 void lib3ds_early_init();
 // Boot trace: appends one line to sdmc:/3ds/crawl/boot.log
 void lib3ds_boot_mark(const char *what);
+// Stable romfs timestamp and the fatal-error wait screen (defined in lib3ds.cc).
+#include <time.h>
+time_t lib3ds_romfs_mtime();
+void lib3ds_fatal_wait(const char *msg);
 // Item / feature description actions as bottom-screen buttons (describe.cc).
 #include <string>
 #include <utility>

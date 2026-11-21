@@ -387,7 +387,7 @@ public:
         layout(cv.w);
         const Section &s = m_sections[m_sec];
         text(cv, 8, 5, s.title, C_HEAD, true, cv.w - 60);
-        char pg[16];
+        char pg[32];
         snprintf(pg, sizeof(pg), "%d/%d", m_sec + 1, (int)m_sections.size());
         text(cv, cv.w - 8 - 6 * (int)strlen(pg), 5, pg, C_DIM);
 

@@ -1538,17 +1538,27 @@ static void alert_check()
     static bool have = false;
     static int hp = 0, nmons = 0;
     static bool poisoned = false;
-    if (!you.save || crt_mode || you.hp_max <= 0)
+    static std::map<std::string, int> seen;   // hostile monsters in view last time, by name
+    if (!you.save || crt_mode || you.hp_max <= 0 || !map_bounds(you.pos()))   // DC-04: same guard as the "In view" list
     {
         have = false;
+        seen.clear();
         return;
     }
     vector<monster_info> mons;
     get_nearby_monster_info(mons);
     int hostile = 0;
-    const monster_info *first = nullptr;
+    std::map<std::string, int> now_seen;
+    const monster_info *first = nullptr;       // DC-05: the one that just came into view, not the first in the list
     for (const monster_info &m : mons)
-        if (m.attitude == ATT_HOSTILE) { if (!first) first = &m; ++hostile; }
+        if (m.attitude == ATT_HOSTILE) ++now_seen[m.proper_name(DESC_A)], ++hostile;
+    for (const monster_info &m : mons)
+        if (m.attitude == ATT_HOSTILE && !first)
+        {
+            auto it = seen.find(m.proper_name(DESC_A));
+            if (it == seen.end() || now_seen[m.proper_name(DESC_A)] > it->second) first = &m;
+        }
+    seen.swap(now_seen);
     const bool pois = you.duration[DUR_POISONING] > 0;
     if (have)
     {
@@ -2576,11 +2586,19 @@ static void poll_input()
     // Rule 13: in crawl's menus (text mode) a row acts when the stylus lifts without moving,
     // and a vertical drag pages the menu (one page per 48 px: up = next page, like a list
     // following the stylus). The button bar along the bottom still acts on touch-down.
+    // (DC-07: the state lives outside the block, so a touch that outlives the menu is dropped, not
+    // replayed later as a stale button press; paging uses PgUp/PgDn, which do nothing in the game,
+    // where '<' and '>' would climb or descend the stairs.)
+    static bool on = false, dragging = false, pend = false;
+    static button pb;
+    static int y0, ylast, acc, bx0, by0;
+    if (!(crt_mode && !keyboard_overlay) && on)
+    {
+        on = dragging = pend = false;
+        pressed_button = -1; bottom_dirty = true;
+    }
     if (crt_mode && !keyboard_overlay)
     {
-        static bool on = false, dragging = false, pend = false;
-        static button pb;
-        static int y0, ylast, acc;
         const u32 held = hidKeysHeld();
         touchPosition tp;
         if (down & KEY_TOUCH)
@@ -2590,6 +2608,7 @@ static void poll_input()
             const int b = button_at(tp.px, tp.py);
             if (tp.py < 240 - 6 - 30 - 2)   // above the bar: decide on lift
             {
+                bx0 = tp.px; by0 = tp.py;
                 if (b >= 0) { pb = buttons[b]; pend = true; pressed_button = b; bottom_dirty = true; }
                 down &= ~KEY_TOUCH;
             }
@@ -2601,15 +2620,17 @@ static void poll_input()
             if (dragging)
             {
                 acc += ylast - tp.py;
-                while (acc >= 48) { keyq.push_back('>'); acc -= 48; }
-                while (acc <= -48) { keyq.push_back('<'); acc += 48; }
+                while (acc >= 48) { keyq.push_back(CK_PGDN); acc -= 48; }
+                while (acc <= -48) { keyq.push_back(CK_PGUP); acc += 48; }
             }
             ylast = tp.py;
         }
         else if (on)
         {
             on = false;
-            if (pend && !dragging) { ui_tap_feedback(); press_button(pb); }
+            // only if the same button is still under the finger's start point (the screen may have changed)
+            const int nb = button_at(bx0, by0);
+            if (pend && !dragging && nb >= 0 && buttons[nb].key == pb.key && buttons[nb].special == pb.special && (buttons[nb].label == pb.label || (buttons[nb].label && pb.label && !strcmp(buttons[nb].label, pb.label)))) { ui_tap_feedback(); press_button(pb); }
             pend = false; pressed_button = -1; bottom_dirty = true;
         }
     }
@@ -3080,10 +3101,10 @@ static void home_log(const char *what)
             (unsigned long)(osGetMemRegionFree(MEMREGION_BASE) / 1024));
     fprintf(f, "%llu %s: top fmt=%02lx fb0=%p fb1=%p | bot fmt=%02lx fb0=%p fb1=%p\n",
             (unsigned long long)osGetTime(), what,
-            (unsigned long)ci.screencapture[0].format, ci.screencapture[0].framebuf0_vaddr,
-            ci.screencapture[0].framebuf1_vaddr,
-            (unsigned long)ci.screencapture[1].format, ci.screencapture[1].framebuf0_vaddr,
-            ci.screencapture[1].framebuf1_vaddr);
+            (unsigned long)ci.screencapture[0].format, (void *)ci.screencapture[0].framebuf0_vaddr,
+            (void *)ci.screencapture[0].framebuf1_vaddr,
+            (unsigned long)ci.screencapture[1].format, (void *)ci.screencapture[1].framebuf0_vaddr,
+            (void *)ci.screencapture[1].framebuf1_vaddr);
     fclose(f);
 }
 static void home_hook(APT_HookType type, void *)
