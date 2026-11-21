@@ -1085,9 +1085,14 @@ static void draw_button(Canvas &cv, const button &b, bool pressed, bool transluc
     else
     {
         // text button: label (possibly two words) centred
-        const Font &f = b.w >= 40 ? F_TEXT : F_SMALL;
+        const Font &f0 = b.w >= 40 ? F_TEXT : F_SMALL;
         const char *sp = strchr(b.label, ' ');
-        if (sp && f.w * (int)strlen(b.label) > b.w - 2)
+        // text-fit rule: when the label (or the longer of its two lines) is wider than the
+        // button in the normal font, it is drawn in the small one instead of running over
+        const int longest = sp ? (int)std::max<size_t>(sp - b.label, strlen(sp + 1)) : (int)strlen(b.label);
+        const bool split = sp && f0.w * (int)strlen(b.label) > b.w - 2;
+        const Font &f = f0.w * (split || !sp ? longest : (int)strlen(b.label)) > b.w - 2 ? F_SMALL : f0;
+        if (split)
         {
             std::string a(b.label, sp - b.label), c(sp + 1);
             draw_text(cv, f, b.x + (b.w - text_width(f, a.c_str())) / 2 + push, b.y + b.h / 2 - f.h + push, a.c_str(), C_WHITE);
@@ -1818,12 +1823,45 @@ static void draw_text_mode_bottom()
         draw_text(cv, F_BOLD, x + 5, y + (rowh - 4 - 13) / 2, k, C_GOLD);
         int px = x + 17;
         const int ty = y + (rowh - 4 - 13) / 2;
-        for (int gx = e.tcol; gx < e.tend && px + F_TEXT.w <= x + colw - 4; ++gx)
+        // Text-fit rule: a label is never cut off. It is drawn in the normal font when it fits
+        // the row, else in the small font, else in the small font on two lines broken at a
+        // space; only what is longer than two small lines ends in "..".
+        int tend = e.tend;
+        while (tend > e.tcol && grid[e.row][tend - 1].glyph == ' ')
+            --tend;
+        const int len = tend - e.tcol, avail = x + colw - 4 - px - 1;
+        auto put = [&](const Font &f, int gx, int cx, int cy)
         {
             const cell_t &c = grid[e.row][gx];
             if (c.glyph != ' ')
-                draw_char(cv, F_TEXT, px, ty, c.glyph, pal(c.fg == BLACK ? LIGHTGREY : c.fg), nullptr);
-            px += F_TEXT.w;
+                draw_char(cv, f, cx, cy, c.glyph, pal(c.fg == BLACK ? LIGHTGREY : c.fg), nullptr);
+        };
+        if (len * F_TEXT.w <= avail)
+            for (int i2 = 0; i2 < len; ++i2)
+                put(F_TEXT, e.tcol + i2, px + i2 * F_TEXT.w, ty);
+        else if (len * F_SMALL.w <= avail)
+            for (int i2 = 0; i2 < len; ++i2)
+                put(F_SMALL, e.tcol + i2, px + i2 * F_SMALL.w, y + (rowh - 4 - F_SMALL.h) / 2);
+        else
+        {
+            const int per = std::max(1, avail / F_SMALL.w);
+            int brk = per;                                   // first line: up to the last space that fits
+            for (int i2 = std::min(per, len - 1); i2 > 0; --i2)
+                if (grid[e.row][e.tcol + i2].glyph == ' ') { brk = i2; break; }
+            const int y1 = y + (rowh - 4 - (2 * F_SMALL.h + 1)) / 2, y2 = y1 + F_SMALL.h + 1;
+            for (int i2 = 0; i2 < brk; ++i2)
+                put(F_SMALL, e.tcol + i2, px + i2 * F_SMALL.w, y1);
+            int s2 = brk;
+            while (s2 < len && grid[e.row][e.tcol + s2].glyph == ' ')
+                ++s2;
+            const int rest = len - s2, shown = std::min(rest, per);
+            for (int i2 = 0; i2 < shown; ++i2)
+            {
+                if (rest > per && i2 >= per - 2)
+                    draw_char(cv, F_SMALL, px + i2 * F_SMALL.w, y2, '.', C_DIM, nullptr);
+                else
+                    put(F_SMALL, e.tcol + s2 + i2, px + i2 * F_SMALL.w, y2);
+            }
         }
         buttons.push_back({ x, y, colw - 4, rowh - 4, "", e.key, 0, 0 });
     }
