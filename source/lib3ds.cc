@@ -1268,6 +1268,24 @@ static void draw_grid_region(Canvas &cv, const Font &f, int px, int py, int rowh
     }
 }
 
+// DC-03: the monsters in view, built at most once per screen update and shared by the alert
+// check and the dashboard's "In view" list (each built it, so twice per update, and the alert
+// check made each name three times). update_screen marks it stale before and after it runs.
+static vector<monster_info> g_nearby;
+static bool g_nearby_ok = false;
+static unsigned g_nearby_builds = 0;   // debug.txt frame line
+static const vector<monster_info> &nearby_monsters()
+{
+    if (!g_nearby_ok)
+    {
+        g_nearby.clear();
+        get_nearby_monster_info(g_nearby);
+        g_nearby_ok = true;
+        ++g_nearby_builds;
+    }
+    return g_nearby;
+}
+
 static void draw_play_top()
 {
     // 400 wide on the top screen; 320 wide when swapped onto the touch screen ("In view" shows
@@ -1309,8 +1327,7 @@ static void draw_play_top()
 #ifdef USE_TILE
     if (map_bounds(you.pos()))
     {
-        vector<monster_info> mons;
-        get_nearby_monster_info(mons);
+        const vector<monster_info> &mons = nearby_monsters();   // DC-03: shared with alert_check
         for (size_t i = 0; i < mons.size() && my0 + 16 + row * 18 + 16 < map_oy - 2; )
         {
             size_t j = i + 1;
@@ -1536,11 +1553,14 @@ static void alert_push(const char *t, bool danger)
     g_alert_until = now + 3000;
     bottom_dirty = true;
 }
+static const vector<monster_info> &nearby_monsters();
 static void alert_check()
 {
     static bool have = false;
     static int hp = 0, nmons = 0;
     static bool poisoned = false;
+    static int last_time = -1;
+    static coord_def last_pos;
     static std::map<std::string, int> seen;   // hostile monsters in view last time, by name
     if (!you.save || crt_mode || you.hp_max <= 0 || !map_bounds(you.pos()))   // DC-04: same guard as the "In view" list
     {
@@ -1548,21 +1568,27 @@ static void alert_check()
         seen.clear();
         return;
     }
-    vector<monster_info> mons;
-    get_nearby_monster_info(mons);
+    const bool pois = you.duration[DUR_POISONING] > 0;
+    // DC-03: update_screen runs many times a turn; nothing here can change unless time passed,
+    // you moved, or your HP or poisoning changed
+    if (have && you.elapsed_time == last_time && you.pos() == last_pos && you.hp == hp && pois == poisoned)
+        return;
+    last_time = you.elapsed_time;
+    last_pos = you.pos();
+    const vector<monster_info> &mons = nearby_monsters();
     int hostile = 0;
     std::map<std::string, int> now_seen;
     const monster_info *first = nullptr;       // DC-05: the one that just came into view, not the first in the list
-    for (const monster_info &m : mons)
-        if (m.attitude == ATT_HOSTILE) ++now_seen[m.proper_name(DESC_A)], ++hostile;
-    for (const monster_info &m : mons)
-        if (m.attitude == ATT_HOSTILE && !first)
+    vector<string> names(mons.size());         // DC-03: each name made once
+    for (size_t i = 0; i < mons.size(); ++i)
+        if (mons[i].attitude == ATT_HOSTILE) { names[i] = mons[i].proper_name(DESC_A); ++now_seen[names[i]]; ++hostile; }
+    for (size_t i = 0; i < mons.size(); ++i)
+        if (mons[i].attitude == ATT_HOSTILE && !first)
         {
-            auto it = seen.find(m.proper_name(DESC_A));
-            if (it == seen.end() || now_seen[m.proper_name(DESC_A)] > it->second) first = &m;
+            auto it = seen.find(names[i]);
+            if (it == seen.end() || now_seen[names[i]] > it->second) first = &mons[i];
         }
     seen.swap(now_seen);
-    const bool pois = you.duration[DUR_POISONING] > 0;
     if (have)
     {
         char b[48];
@@ -1580,7 +1606,7 @@ static void alert_check()
             alert_push("! POISONED", true);
         if (hostile > nmons && first)
         {
-            snprintf(b, sizeof b, "! %s", first->proper_name(DESC_A).c_str());
+            snprintf(b, sizeof b, "! %s", names[first - &mons[0]].c_str());
             alert_push(b, true);
         }
     }
@@ -2059,6 +2085,7 @@ static void draw_top()
         draw_text_mode_top();
     else
         draw_play_top();
+    g_nearby_ok = false;                 // DC-03: a later draw outside update_screen builds it fresh
     // the dashboard is flat: same image for both eyes
     cv_present(top_cv);
     top_dirty = false;
@@ -3055,6 +3082,28 @@ void lib3ds_early_init()
     boot_mark("early_init: done");
 }
 
+// DC-02: the first start (and the first after an update) builds the databases and the level
+// cache for minutes on the boot console, and nothing looked at the HOME button meanwhile.
+// patch_crawl.py calls this between database / map files: HOME opens the HOME Menu (the
+// build goes on when you come back); HOME -> Close quits at once, before any game is loaded
+// (each database is written with its TIMESTAMP row last, so a half-built one is built again
+// next time). Inside a game it takes crawl's own hangup road (save and exit) instead.
+void lib3ds_build_pump()
+{
+#ifndef __3DS_HARNESS__
+    if (aptMainLoop())
+        return;
+    if (you.save)
+    {
+        you.save->lib3ds_reopen_fd();
+        crawl_state.seen_hups = true;
+        return;
+    }
+    boot_mark("build: HOME -> Close during the first-start build: quit");
+    exit(0);
+#endif
+}
+
 // Called from end() on a fatal exit: show the reason and wait.
 void lib3ds_fatal_wait(const char *msg)
 {
@@ -3580,21 +3629,47 @@ void puttext(int x1, int y1, const crawl_view_buffer &vbuf)
     in_puttext = false;
 }
 
+// debug.txt: sdmc:/3ds/crawl/frame.log gets a line every 300 screen updates: the update time
+// (avg, longest) and how many monster lists were built (DC-03: at most one per update).
+static void frame_stat(u64 t0)
+{
+    static unsigned n = 0;
+    static u64 sum = 0, mx = 0;
+    if (!lib3ds_debug())
+        return;
+    const u64 d = osGetTime() - t0;   // ms
+    sum += d;
+    if (d > mx) mx = d;
+    if (++n < 300)
+        return;
+    if (FILE *f = lib3ds_log_open("sdmc:/3ds/crawl/frame.log"))
+    {
+        fprintf(f, "frame: %u screen updates, update avg %.2f ms, max %llu ms, monster lists %u\n",
+                n, (double)sum / n, (unsigned long long)mx, g_nearby_builds);
+        fclose(f);
+    }
+    n = 0; sum = mx = 0; g_nearby_builds = 0;
+}
+
 void update_screen()
 {
     if (!inited || pm_open)
         return;
+    const u64 t0 = osGetTime();
     if (any_dirty())
     {
         top_dirty = true;
         bottom_dirty = true;
     }
+    g_nearby_ok = false;                 // DC-03: one monster list for this update
     alert_check();
     if (top_dirty)
         draw_top();
     if (bottom_dirty)
         draw_bottom();
     clear_dirty();
+    g_nearby_ok = false;
+    frame_stat(t0);
 }
 
 int get_number_of_lines()

@@ -344,6 +344,28 @@ for _f in ("database.cc", "maps.cc"):
         open(_p, "w", encoding="utf-8").write(_t.replace(_o, _n))
         print("  + %-14s first-run progress on the console" % _f)
 
+# --- DC-02: HOME works while the first start builds the databases / level cache ---
+# The build runs for minutes on the boot console and never looked at the HOME button.
+# Between files it now calls lib3ds_build_pump() (lib3ds.cc): HOME opens the HOME Menu,
+# HOME -> Close quits at once (a half-built db or cache file is built again next time).
+import re as _re
+for _f in ("database.cc", "maps.cc"):
+    _p = os.path.join(SRC, _f)
+    _t = open(_p, encoding="utf-8").read()
+    if "lib3ds_build_pump" not in _t:
+        _t2 = _re.sub(r'\n([ \t]*)mprf\(MSGCH_PLAIN, "Regenerating',
+                      lambda m: "\n#ifdef TARGET_OS_3DS\n" + m.group(1) + "lib3ds_build_pump(); // DC-02: HOME during the build\n#endif\n"
+                                + m.group(1) + 'mprf(MSGCH_PLAIN, "Regenerating', _t)
+        _inc = '#include "AppHdr.h"\n'
+        if _t2 != _t and _inc in _t2:
+            _t2 = _t2.replace(_inc, _inc + "#ifdef TARGET_OS_3DS\nvoid lib3ds_build_pump(); // lib3ds.cc (DC-02)\n#endif\n", 1)
+            open(_p, "w", encoding="utf-8").write(_t2)
+            print("  + %-14s HOME during the first-start build (DC-02)" % _f)
+        else:
+            raise SystemExit("DC-02 anchor not found in " + _f)
+    else:
+        print("  = %-14s DC-02 already patched" % _f)
+
 # 3DS: the tile *indices* are all the frontend needs from rltiles (the art
 # comes from the prebuilt atlas, 3ds/tiles16.bin), so keep generating the
 # tile headers the console way -- no libpng / real PNGs needed on the host.
