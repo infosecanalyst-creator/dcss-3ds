@@ -24,6 +24,7 @@ Buttons run down both edges, outside your line of sight, so they never hide a mo
 - Your name, health and magic bars, defences (AC, EV, SH), stats, level and place.
 - Status effects in colour under your stats (poisoned, hasted, and so on).
 - In view: the monsters you can see, with their pictures.
+- Alerts: for about 3 seconds a strip across the top of the map says ! LOW HEALTH, ! BIG HIT, ! POISONED, or ! and the name of a monster that has just come into view.
 - A map of the whole level. The box shows the part on the touch screen.
 - The messages: what just happened. The newest line is at the bottom.
 
@@ -76,7 +77,9 @@ At the bottom of the manual's touch screen, "Left hand" swaps the D-pad with the
 # Menus and typing
 Menus (inventory, spells, character creation, shops) appear on the top screen. The touch screen lists every choice as a big button: tap one to pick it.
 
-At the bottom: Esc, Enter, Page Up, Page Down and Keys.
+At the bottom: Esc, Enter, Pg Up, Pg Dn and Keys.
+
+Long menus have pages. Turn them with the Pg Up and Pg Dn buttons, with L and R, or by dragging the stylus up or down on the touch screen (one page for each short drag; drag up for the next page). A row is picked when you lift the stylus, so you can touch, change your mind and slide away. In the dungeon itself L and R zoom the map, not page.
 
 When Crawl wants you to type (your name, a travel destination, a search), the touch keyboard opens by itself. Shft and Ctrl stick for one key. The arrow keys are in its top row, next to Close. Close it with Close or Select.
 
@@ -167,6 +170,7 @@ Effects show in colour on the top screen under your stats: for example Poison, S
 - START, then Exit Game (YES) saves the game and quits, as does HOME then Close. Your character is waiting on the main menu next time.
 - There is one save per character. Death is permanent: the game ends and goes to the high scores.
 - Saves, morgue files (a record of each game) and your settings are in sdmc:/3ds/crawl/.
+- The program is sdmc:/3ds/crawl.3dsx, directly in /3ds, not in the crawl folder.
 
 # Tips
 - Explore one level at a time and do not dive too fast.
@@ -180,7 +184,7 @@ Effects show in colour on the top screen under your stats: for example Poison, S
 Open the keyboard (the "keys" button or SELECT) and tap Bright (or START, then Brightness) to step through five brightness levels (0 is the original look, 2 is the default). Your choice is remembered. The 3DS's own brightness setting in the HOME Menu also helps; power-saving mode dims the screens.
 
 ## The first start takes minutes
-Crawl builds its databases and level cache when the game data changes (rarely, with a new version). Other starts take seconds.
+Crawl builds its databases and level cache when the game data changes (rarely, with a new version). Other starts take seconds. HOME works while it builds: HOME then Close quits the game cleanly, and the build starts again next time.
 
 ## The screen looks wrong or a button does nothing
 Press B to back out, then try again. Send a photo of anything that looks broken.
@@ -188,7 +192,9 @@ Press B to back out, then try again. Send a photo of anything that looks broken.
 ## The game crashed
 Your character is saved at most a few turns back. Errors are written to sdmc:/3ds/crawl/stdout.txt.
 
-For a detailed log (start-up steps, sounds, the HOME Menu), create an empty file named debug.txt in sdmc:/3ds/crawl/ and start the game again. Delete it afterwards: the detailed log slows the game.
+The log files in sdmc:/3ds/crawl/ (boot.log, sound.log, home.log, frame.log) normally hold only failures and the exit line. A log that grows past 1 MB starts over.
+
+For a detailed log (start-up steps, sounds, the HOME Menu, a frame-timing line), create an empty file named debug.txt in sdmc:/3ds/crawl/ and start the game again. Delete it afterwards: the detailed log slows the game.
 
 ## Changing this manual
 A file named manual.txt in sdmc:/3ds/crawl/ replaces the built-in text. Sections start with "# ", headings with "## ", list items with "- ", numbered steps with "1. ", table rows with "| ".

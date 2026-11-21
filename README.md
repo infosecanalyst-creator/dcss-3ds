@@ -3,8 +3,10 @@
 A console-mode port of DCSS (current master, 0.34-era) to the Nintendo 3DS,
 done as a small platform layer on top of the upstream code rather than a fork.
 
-DCSS is free software, so no game files need to be supplied: the build
+DCSS is free software, so no game files need to be supplied (there is nothing to bring): the build
 fetches the upstream source and data itself.
+
+Install: `crawl.3dsx` goes directly in `sdmc:/3ds/` (as `sdmc:/3ds/crawl.3dsx`); the game makes `sdmc:/3ds/crawl/` for saves and settings. Logs there (`boot.log`, `sound.log`, `home.log`, `frame.log`) hold only failures and the exit line unless an empty `sdmc:/3ds/crawl/debug.txt` exists; a log past 1 MB starts over. HOME works during the first-start build.
 
 *Not affiliated with or endorsed by the DCSS team or Nintendo.*
 
