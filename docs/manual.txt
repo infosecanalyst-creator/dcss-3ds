@@ -188,5 +188,7 @@ Press B to back out, then try again. Send a photo of anything that looks broken.
 ## The game crashed
 Your character is saved at most a few turns back. Errors are written to sdmc:/3ds/crawl/stdout.txt.
 
+For a detailed log (start-up steps, sounds, the HOME Menu), create an empty file named debug.txt in sdmc:/3ds/crawl/ and start the game again. Delete it afterwards: the detailed log slows the game.
+
 ## Changing this manual
 A file named manual.txt in sdmc:/3ds/crawl/ replaces the built-in text. Sections start with "# ", headings with "## ", list items with "- ", numbered steps with "1. ", table rows with "| ".

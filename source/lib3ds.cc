@@ -2791,6 +2791,28 @@ ndspWaveBuf snd_buf[4];
 int snd_next = 0;
 }
 
+// DC-08: the diagnostic logs (boot.log, sound.log, home.log) were opened, appended and closed
+// line by line on the SD card (100-200 ms each): every boot step, the first 40 sounds, every
+// new sound loaded in play, three lines per HOME press. Now only with sdmc:/3ds/crawl/debug.txt
+// (checked once, at the first log line). Kept always (rare): the first boot line, boot
+// failures, ndspInit's result, HOME "exit", the atlas mismatch. A log past 1 MB starts over.
+static bool lib3ds_debug()
+{
+    static int on = -1;
+    if (on < 0)
+    {
+        struct stat st;
+        on = stat("sdmc:/3ds/crawl/debug.txt", &st) == 0;
+    }
+    return on != 0;
+}
+
+static FILE *lib3ds_log_open(const char *path)   // append; a file past 1 MB starts over
+{
+    struct stat st;
+    return fopen(path, stat(path, &st) == 0 && st.st_size > 1024 * 1024 ? "w" : "a");
+}
+
 static void sound_init()
 {
 #ifndef __3DS_HARNESS__
@@ -2836,9 +2858,9 @@ static void sound_shutdown()
 void lib3ds_play_sound(const char *file)
 {
     static int logged = 0;               // first plays go to sound.log
-    if (logged < 40 && !strstr(file ? file : "", "x-step") && !strstr(file ? file : "", "x-click"))
+    if (logged < 40 && lib3ds_debug() && !strstr(file ? file : "", "x-step") && !strstr(file ? file : "", "x-click"))
     {
-        if (FILE *lf = fopen("sdmc:/3ds/crawl/sound.log", "a"))
+        if (FILE *lf = lib3ds_log_open("sdmc:/3ds/crawl/sound.log"))
         {
             fprintf(lf, "play %s%s\n", file ? file : "(null)", snd_ok ? "" : " (sound off)");
             fclose(lf);
@@ -2873,7 +2895,9 @@ void lib3ds_play_sound(const char *file)
                 DSP_FlushDataCache(clip.pcm, clip.samples * 2);
 #endif
         }
-        if (FILE *lf = fopen("sdmc:/3ds/crawl/sound.log", "a"))
+        if (!lib3ds_debug())
+            ;
+        else if (FILE *lf = lib3ds_log_open("sdmc:/3ds/crawl/sound.log"))
         {
             fprintf(lf, "load %s: %u samples\n", path.c_str(), (unsigned)clip.samples);
             fclose(lf);
@@ -2957,9 +2981,13 @@ void enter_headless_mode() { headless = true; }
 // (an emulator that exits in two seconds leaves no other trace).
 void lib3ds_boot_mark(const char *what)
 {
+    static bool first = true;   // the first line of each launch is always written
+    if (!first && !lib3ds_debug() && !strstr(what, "FAILED"))
+        return;
+    first = false;
     mkdir("sdmc:/3ds", 0777);
     mkdir("sdmc:/3ds/crawl", 0777);
-    if (FILE *f = fopen("sdmc:/3ds/crawl/boot.log", "a"))
+    if (FILE *f = lib3ds_log_open("sdmc:/3ds/crawl/boot.log"))
     {
         fprintf(f, "%s\n", what);
         fclose(f);
@@ -3035,7 +3063,9 @@ static aptHookCookie home_cookie;
 // HOME diagnostics: what the HOME Menu was handed, in sdmc:/3ds/crawl/home.log
 static void home_log(const char *what)
 {
-    FILE *f = fopen("sdmc:/3ds/crawl/home.log", "a");
+    if (!lib3ds_debug() && strcmp(what, "exit") != 0)   // DC-08: debug.txt only, except "exit"
+        return;
+    FILE *f = lib3ds_log_open("sdmc:/3ds/crawl/home.log");
     if (!f)
         return;
     GSPGPU_CaptureInfo ci;

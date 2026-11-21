@@ -114,6 +114,7 @@ from crawl's `rltiles` sheets).
 
 - Game data: baked into romfs (`romfs:/dat`, `romfs:/settings`, `romfs:/docs`)
 - Saves, morgues, rc file: `sdmc:/3ds/crawl/` — put your `init.txt` there
+- Logs: `stdout.txt` (errors), `boot.log` (first line of each launch, failures); an empty `sdmc:/3ds/crawl/debug.txt` adds every boot step, `sound.log` plays/loads and `home.log` (each log starts over past 1 MB)
 
 ## Testing without a 3DS
 
