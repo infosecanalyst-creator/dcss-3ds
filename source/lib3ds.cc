@@ -3017,6 +3017,18 @@ void lib3ds_play_sound(const char *file)
 // Stable timestamp for every romfs file (see files.cc patch): the mtime of
 // the .3dsx we were launched from, so caches rebuild once per install.
 extern "C" { extern int __system_argc; extern char **__system_argv; }
+// A launcher that passes no arguments (the Azahar test emulator; the Homebrew
+// Launcher and the test agent always pass the path) leaves argv NULL, and
+// Crawl's main() reads argv[0]. Give it the install path instead.
+__attribute__((constructor)) static void lib3ds_default_argv()
+{
+    static char self[] = "sdmc:/3ds/crawl.3dsx";
+    static char *av[] = { self, nullptr };
+    if (__system_argc <= 0 || !__system_argv || !__system_argv[0]) {
+        __system_argv = av;
+        __system_argc = 1;
+    }
+}
 time_t lib3ds_romfs_mtime()
 {
     static time_t t = 0;
