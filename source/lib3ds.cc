@@ -1154,7 +1154,7 @@ static bool more_prompt_visible()
 
 // Menu entries in text mode: "x - text", "x + text", "x # text", "x) text",
 // "x. text" or "x: text", possibly several per row (multi-column menus).
-struct menu_entry { int key; int row; int col; int tcol; int tend; bool dashed; };   // dashed: "x - text" style
+struct menu_entry { int key; int row; int col; int tcol; int tend; bool dashed; bool named = false; };   // dashed: "x - text" style; named: on Bksp, Tab...
 
 static bool menu_key_char(char32_t k)
 {
@@ -1177,6 +1177,37 @@ static std::vector<menu_entry> find_menu_entries()
             const char32_t k = grid[y][x].glyph;
             if (!menu_key_char(k))
                 continue;
+            // "Bksp - Return to character menu", "Tab - <last character>": a choice on a named
+            // keyboard key. It becomes a button of its own (its label is the text alone, so no
+            // keyboard key is named on the touch screen) instead of running into its neighbour.
+            {
+                static const struct { const char *name; int key; } named[] = {
+                    { "Bksp", CK_BKSP }, { "Tab", '\t' },   // not Esc / Enter: the name prompt lists those and needs the keyboard
+                };
+                bool hit = false;
+                for (const auto &nk : named)
+                {
+                    const int nl = (int)strlen(nk.name);
+                    if (x + nl + 3 >= GRID_W)
+                        continue;
+                    bool same = true;
+                    for (int i = 0; i < nl && same; ++i)
+                        same = grid[y][x + i].glyph == (char32_t)nk.name[i];
+                    if (!same || grid[y][x + nl].glyph != ' ' || grid[y][x + nl + 1].glyph != '-' || grid[y][x + nl + 2].glyph != ' ')
+                        continue;
+                    int t2 = x + nl + 3;
+                    while (t2 < GRID_W && grid[y][t2].glyph == ' ')
+                        ++t2;
+                    if (t2 >= GRID_W)
+                        continue;
+                    row.push_back({ nk.key, y, x, t2, GRID_W, true, true });
+                    x = t2;
+                    hit = true;
+                    break;
+                }
+                if (hit)
+                    continue;
+            }
             const char32_t a = grid[y][x + 1].glyph, b = grid[y][x + 2].glyph, c = grid[y][x + 3].glyph;
             int t = -1;
             if (a == ' ' && (b == '-' || b == '+' || b == '#' || b == '=') && c == ' ')
@@ -1189,7 +1220,7 @@ static std::vector<menu_entry> find_menu_entries()
                 ++t;
             if (t >= GRID_W || grid[y][t].glyph == ' ')
                 continue;
-            row.push_back({ (int)k, y, x, t, GRID_W, a == ' ' });
+            row.push_back({ (int)k, y, x, t, GRID_W, a == ' ', false });
             x = t;
         }
         for (size_t i = 0; i < row.size(); ++i)
@@ -1202,7 +1233,7 @@ static std::vector<menu_entry> find_menu_entries()
     // a lone "x) text" / "x. text" / "x: text" match is usually prose, not a menu;
     // a lone "x - text" (also + # =) is a real one-item menu (a single item to pick up,
     // drop, wield...) and gets its button instead of the keyboard (DC-06)
-    if (out.size() == 1 && !(out[0].dashed && isalpha(out[0].key)))
+    if (out.size() == 1 && !(out[0].dashed && !out[0].named && isalpha(out[0].key)))
         out.clear();
     // column-major, like the menu reads on the top screen; a footer block
     // (after a gap of blank rows: "+ - Recommended...", "? - Help") goes last
@@ -1818,7 +1849,8 @@ static void draw_text_mode_bottom()
         const int tfg = grid[e.row][e.tcol].fg;
         const bool dim = tfg == DARKGREY;
         cv_fill(cv, x, y, colw - 4, rowh - 4, dim ? 22 : 30, dim ? 22 : 32, dim ? 30 : 46);
-        char k[2] = { (char)e.key, 0 };
+        // a choice on a named key shows an arrow, not a letter: "<" goes back (Bksp, Esc)
+        char k[2] = { e.named ? ((e.key == CK_BKSP || e.key == ESCAPE) ? '<' : '>') : (char)e.key, 0 };
         cv_fill(cv, x + 2, y + (rowh - 4 - 14) / 2, 12, 14, 70, 70, 110);
         draw_text(cv, F_BOLD, x + 5, y + (rowh - 4 - 13) / 2, k, C_GOLD);
         int px = x + 17;
@@ -2336,7 +2368,7 @@ static bool manual_input(u32 down, u32 rep)
     hidCircleRead(&cp);
     mi.cpad_y = cp.dy;
     g_manual.set_toggle(lefty_on() ? "Left hand: on" : "Left hand: off");
-    g_manual.set_footer(lefty_on() ? "Stick: scroll   A/B/X/Y: section   D-Down: close" : "");
+    g_manual.set_footer(lefty_on() ? "Sticks: scroll   A/B/X/Y, L / R: section   D-Down / START: close" : "");
     const bool was_dirty = g_manual.dirty();
     const bool open = g_manual.update(mi);
     if (g_manual.take_toggle())

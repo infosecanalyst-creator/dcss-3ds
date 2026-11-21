@@ -426,7 +426,7 @@ public:
             fill(cv, bx, ty, 3, th, 150, 150, 200);
         }
         fill(cv, 0, cv.h - FOOT, cv.w, FOOT, 24, 24, 38);
-        text(cv, 8, cv.h - FOOT + 2, m_footer.empty() ? "Stick: scroll   D-Pad: section   B: close" : m_footer.c_str(), C_DIM);
+        text(cv, 8, cv.h - FOOT + 2, m_footer.empty() ? "Sticks: scroll   D-Pad, L / R: section   B / START: close" : m_footer.c_str(), C_DIM);
         m_dirty = false;
     }
 
