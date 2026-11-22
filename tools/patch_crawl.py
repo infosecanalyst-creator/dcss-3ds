@@ -639,7 +639,7 @@ print("  + 3ds/sounds/ (%d files) copied" % len(os.listdir(_snd)))
 _names = [
     ("CMD_DISPLAY_INVENTORY", "[items]"), ("CMD_CAST_SPELL", "[cast]"), ("CMD_USE_ABILITY", "[abil]"),
     ("CMD_DISPLAY_MAP", "[map]"), ("CMD_DISPLAY_CHARACTER_STATUS", "[char]"),
-    ("CMD_REPLAY_MESSAGES", "[msgs]"), ("CMD_EXPLORE", "[explr]"), ("CMD_AUTOFIGHT", "[fight]"),
+    ("CMD_REPLAY_MESSAGES", "[msgs]"), ("CMD_EXPLORE", "[explore]"), ("CMD_AUTOFIGHT", "[fight]"),
     ("CMD_REST", "[rest]"), ("CMD_WAIT", "[wait]"), ("CMD_PICKUP", "[pick up]"),
     ("CMD_GO_UPSTAIRS", "[up]"), ("CMD_GO_DOWNSTAIRS", "[down]"),
     ("CMD_MENU_EXIT", "B"), ("CMD_MENU_ACCEPT_SELECTION", "A"), ("CMD_MENU_PAGE_UP", "L"),

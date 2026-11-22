@@ -12,7 +12,7 @@ static std::string cmd3ds(const std::string &c)
     static const std::map<std::string, std::string> m = {
         {"CMD_DISPLAY_INVENTORY","[items]"},{"CMD_CAST_SPELL","[cast]"},{"CMD_USE_ABILITY","[abil]"},
         {"CMD_DISPLAY_MAP","[map]"},{"CMD_DISPLAY_CHARACTER_STATUS","[char]"},{"CMD_REPLAY_MESSAGES","[msgs]"},
-        {"CMD_EXPLORE","[explr]"},{"CMD_AUTOFIGHT","[fight]"},{"CMD_REST","[rest]"},{"CMD_WAIT","[wait]"},
+        {"CMD_EXPLORE","[explore]"},{"CMD_AUTOFIGHT","[fight]"},{"CMD_REST","[rest]"},{"CMD_WAIT","[wait]"},
         {"CMD_PICKUP","[pick up]"},{"CMD_GO_UPSTAIRS","[up]"},{"CMD_GO_DOWNSTAIRS","[down]"},
         {"CMD_EQUIP","[items]"},{"CMD_READ","[items]"},{"CMD_QUAFF","[items]"},{"CMD_DROP","[items]"},
         {"CMD_EVOKE","[items]"},{"CMD_WIELD_WEAPON","[items]"},{"CMD_WEAR_ARMOUR","[items]"},

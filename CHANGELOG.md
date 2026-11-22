@@ -2,6 +2,16 @@
 
 ## 2026-11-21
 
+- Touch keyboard open in the dungeon: L and R no longer send "go up" / "go down" (on a staircase they took the stairs); they do nothing there. B closes the keyboard. Shft and Ctrl never stay latched: they are let go when the keyboard closes or a button is pressed. Close is in gold.
+- With the keyboard open in the dungeon the buttons keep their play jobs (A fights, X explores) unless Crawl is waiting for typed text.
+- B in the dungeon no longer prints "Unknown command." when there is nothing to cancel. X pressed while exploring no longer stops it with "Key pressed, stopping explore." (B stops it).
+- Main menu: B and Esc no longer quit the program at once; leave with START > EXIT GAME.
+- Species, background and weapon pickers: every choice has a button now (the lists were cut off after 21); a long list is shown in pages (More 1/3, Back, or L / R). Labels are in one font size on one line where they fit, group headings no longer end up inside the button beside them, and choices Crawl does not recommend no longer look switched off.
+- START menu: full-width buttons, a bigger footer that names the real buttons in left-hand mode, and a "MENU OPEN: THE GAME WAITS" strip on the top screen.
+- Screens swapped (ZL): the touch keyboard stays on the touch screen.
+- The keys button reopens the page last used (letters or Cmds), so a quick command is two taps away.
+- The top screen's level map is drawn at two dots per square (it was one: a smudge).
+- "explr" is spelled out: explore.
 - The game's own help (? in the dungeon) no longer stops the game: its three help files (manual, aptitudes, quick start) were missing from the program and are built in now.
 - The first start no longer builds the databases and level cache for minutes: they come ready-made inside the program (about 11 MB more). The old build on the SD card remains as a fallback, and now also lists the databases as it builds them.
 - Long menus page properly: dragging on the touch screen, Pg Up / Pg Dn and L / R now send the keys Crawl's menus really use (before, some of them did nothing).

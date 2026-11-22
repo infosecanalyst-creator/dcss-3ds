@@ -87,11 +87,12 @@ from crawl's `rltiles` sheets).
   on any tap.
 - **Top screen — the dashboard.** Crawl's status panel (name, HP/MP,
   stats, status lights, weapon/quiver) in a 6×13 font; the monsters in
-  view with their tiles; a level minimap with the touch map's window; the
+  view with their tiles; a map of the explored level at 2 px a square with the touch map's window; the
   message pane in 5×8.
 - **Menus** (inventory, spells, character creation, help…) are detected
   automatically: the text appears on the top screen in 5×8, and the bottom
-  screen turns every menu entry into a touch row (one to three columns),
+  screen turns every menu entry into a touch row (one to three columns; a
+  list too long for one screen is paged with More / Back),
   with Esc / Enter / Page up / Page down / Keys buttons. Text prompts open
   the touch keyboard by themselves.
 
@@ -102,14 +103,15 @@ from crawl's `rltiles` sheets).
 | Stylus | travel / attack / use stairs | pick an entry |
 | D-pad / Circle pad | move (8-way on the pad) | move |
 | A | autofight (Yes on y/n, continue on --more--) | Enter |
-| B | Esc (No on y/n) | Esc |
-| X | autoexplore | `?` help |
+| B | cancel (No on y/n); stops explore, travel and rest; closes the touch keyboard | Esc (does nothing on the main menu: leave with START > EXIT GAME) |
+| X | autoexplore (keeps going if pressed again) | |
 | Y | pick up | next page |
-| L / R | wait a turn / rest | page up / down |
+| L / R | zoom the map out / in (nothing while the touch keyboard is open) | page up / down (the port's own pages of buttons first) |
 | ZL | swap the screens (the stylus is off while swapped) | |
 | ZR | cast | |
 | C-Stick up | inventory | |
 | Select | touch keyboard | touch keyboard |
+| START | port menu: resume, manual, keyboard, brightness, exit (asks first) | the same |
 | HOME | crawl saves and exits | |
 
 ## Where things live on the 3DS

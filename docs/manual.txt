@@ -25,7 +25,7 @@ Buttons run down both edges, outside your line of sight, so they never hide a mo
 - Status effects in colour under your stats (poisoned, hasted, and so on).
 - In view: the monsters you can see, with their pictures.
 - Alerts: for about 3 seconds a strip across the top of the map says ! LOW HEALTH, ! BIG HIT, ! POISONED, or ! and the name of a monster that has just come into view.
-- A map of the whole level. The box shows the part on the touch screen.
+- A map of the explored part of the level, two dots to a square. The box shows the part on the touch screen. When the level is bigger than the map's frame it shows the part around you; the map button shows the whole level.
 - The messages: what just happened. The newest line is at the bottom.
 
 # Touch controls
@@ -36,7 +36,7 @@ Buttons run down both edges, outside your line of sight, so they never hide a mo
 | Yes / No buttons | answer the question in the messages |
 
 ## Left column
-| explr | explore the level automatically |
+| explore | explore the level automatically |
 | fight | attack the nearest monster |
 | rest | rest until healed (stops if a monster appears) |
 | wait | wait one turn |
@@ -50,14 +50,14 @@ Buttons run down both edges, outside your line of sight, so they never hide a mo
 | map | the level map |
 | char | your character overview |
 | msgs | read the past messages |
-| keys | the touch keyboard (any key Crawl knows) |
+| keys | the touch keyboard (any key Crawl knows) and its Cmds page of extra commands |
 
 # Buttons
 | D-pad | move one square (hold to keep going) |
 | Circle Pad | move in 8 directions, diagonals too |
 | A | fight the nearest monster |
-| B | cancel / back |
-| X | explore |
+| B | cancel / back; stops exploring, travel and rest; closes the touch keyboard |
+| X | explore (it keeps going if you press it again; B stops it) |
 | Y | pick up |
 | L | zoom the dungeon map out |
 | R | zoom the dungeon map in (three levels; remembered) |
@@ -65,7 +65,7 @@ Buttons run down both edges, outside your line of sight, so they never hide a mo
 | ZL | swap the screens in the dungeon and the manual: the map fills the top screen, the status and messages move to the touch screen (laid out for it), and the touch screen becomes a touchpad (slide moves the pointer, tap taps there). Crawl's full-screen text pages (menus, character sheet, title) stay on top so they stay readable |
 | ZR | cast a spell (press again to close) |
 | Select | touch keyboard |
-| START | menu (manual, keyboard, brightness, exit) |
+| START | menu (resume, manual, keyboard, brightness, exit); the game waits while it is open |
 | HOME | save and quit |
 
 ## On questions and menus
@@ -79,12 +79,12 @@ Menus (inventory, spells, character creation, shops) appear on the top screen. T
 
 At the bottom: Esc, Enter, Pg Up, Pg Dn and Keys.
 
-Long menus have pages. Turn them with the Pg Up and Pg Dn buttons, with L and R, or by dragging the stylus up or down on the touch screen (one page for each short drag; drag up for the next page). A row is picked when you lift the stylus, so you can touch, change your mind and slide away. In the dungeon itself L and R zoom the map, not page.
+Long menus have pages. Turn them with the Pg Up and Pg Dn buttons, with L and R, or by dragging the stylus up or down on the touch screen (one page for each short drag; drag up for the next page). When a menu has more choices than fit as buttons (the species and background lists), the Pg Dn button reads More 1/3 and Pg Up reads Back: they, and L and R, turn the pages of buttons. A row is picked when you lift the stylus, so you can touch, change your mind and slide away. In the dungeon itself L and R zoom the map, not page; with the touch keyboard open there they do nothing.
 
-When Crawl wants you to type (your name, a travel destination, a search), the touch keyboard opens by itself. Shft and Ctrl stick for one key. The arrow keys are in its top row, next to Close. Close it with Close or Select.
+When Crawl wants you to type (your name, a travel destination, a search), the touch keyboard opens by itself. Shft and Ctrl stick for one key (and are let go when the keyboard closes or you press a button). The arrow keys are in its top row, next to Close. Close it with Close (in gold), Select or B. While Crawl is waiting for typed text, B cancels the typing instead. With the keyboard open in the dungeon the buttons keep their jobs (A fights, X explores), and with the screens swapped it still appears on the touch screen.
 
 ## Quick commands
-The keyboard's Cmds key (bottom right) swaps the letters for blue buttons: the commands without a button on the play screen. Tap keys, Cmds, then one of them; the keyboard closes by itself. ABC brings the letters back.
+The keyboard's Cmds key (bottom right) swaps the letters for blue buttons: the commands without a button on the play screen. Tap keys, Cmds, then one of them; the keyboard closes by itself. After that the keys button opens straight on the Cmds page (two taps for a command); ABC brings the letters back, and typing a letter makes keys open on the letters again.
 | Fire | fire or throw what is quivered |
 | Learn | learn a spell from a book |
 | Look | look around, examine monsters |
@@ -130,6 +130,8 @@ On the main menu pick Dungeon Crawl, then a species and a background. Good first
 
 Choose Tutorial for Dungeon Crawl on the main menu for guided lessons.
 
+On the main menu B and Esc do nothing (in Crawl itself Esc there quits at once). To leave, press START and choose EXIT GAME.
+
 ## The rhythm of play
 1. Press explore. Your character walks until something interesting happens.
 2. When a monster appears, fight it (A or the fight button), or step back if it is dangerous.
@@ -138,7 +140,7 @@ Choose Tutorial for Dungeon Crawl on the main menu for guided lessons.
 5. When the level is explored, take the down stairs.
 
 # Exploring and fighting
-- Explore stops for monsters, items and features. Press it again to carry on.
+- Explore stops for monsters, items and features. Press it again to carry on. Pressing X while it is still exploring changes nothing; B stops it.
 - Fight attacks the nearest monster but will not walk into danger blindly. It stops when your health is low.
 - Fight in corridors so only one monster can reach you at a time.
 - Retreat up the stairs if a fight goes badly: monsters next to you follow, others do not.

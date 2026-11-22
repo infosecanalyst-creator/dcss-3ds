@@ -54,6 +54,7 @@ void lib3ds_fatal_wait(const char *msg);
 #include "cio.h"
 #include "command.h"
 #include "defines.h"
+#include "delay.h"
 #include "directn.h"
 #include "env.h"
 #include "libutil.h"
@@ -305,7 +306,9 @@ static void swap_save()
 // The swap applies in the dungeon and in the manual. crawl's own text screens (menus, character
 // sheet, the title) are 80 columns of 5-px text: squeezed onto the 320-wide touch screen they
 // can't be read (readability rule, Nov 17 2026), so those stay unswapped.
-static bool swap_on() { return g_swapped && !crt_mode; }
+// With the touch keyboard open the screens are not swapped either: on the top screen its keys
+// could only be reached through the touchpad pointer (CRAWL-U6).
+static bool swap_on() { return g_swapped && !crt_mode && !keyboard_overlay; }
 // The swapped dashboard and manual are laid out at 320 wide in top_cv's buffer (row stride 320)
 // and copied 1:1 to the touch screen.
 static bool g_top_narrow = false;
@@ -1023,7 +1026,7 @@ static void build_play_buttons()
     struct def { const char *label; int key; unsigned tile; int special; };
 #ifdef USE_TILE
     static const def left[] = {
-        { "explr",   'o',    TILEG_CMD_EXPLORE, 0 },
+        { "explore", 'o',    TILEG_CMD_EXPLORE, 0 },
         { "fight",   CK_TAB, TILEG_CMD_AUTOFIGHT, 0 },
         { "rest",    '5',    TILEG_CMD_REST, 0 },
         { "wait",    's',    TILEG_CMD_WAIT, 0 },
@@ -1042,7 +1045,7 @@ static void build_play_buttons()
     };
 #else
     static const def left[] = {
-        { "explr", 'o', 0, 0 }, { "fight", CK_TAB, 0, 0 }, { "rest", '5', 0, 0 },
+        { "explore", 'o', 0, 0 }, { "fight", CK_TAB, 0, 0 }, { "rest", '5', 0, 0 },
         { "wait", 's', 0, 0 }, { "pick", 'g', 0, 0 }, { "up <", '<', 0, 0 }, { "dn >", '>', 0, 0 },
     };
     static const def right[] = {
@@ -1230,6 +1233,14 @@ static std::vector<menu_entry> find_menu_entries()
             out.push_back(row[i]);
         }
     }
+    // A label ends where another menu column begins: in the background picker a group heading
+    // ("Adventurer") sits in the next column on the row of "d - Hunter" and was drawn inside
+    // Hunter's button. Only when the text before that column is followed by a gap, so one-column
+    // menus with a wide label are left whole.
+    for (menu_entry &e : out)
+        for (const menu_entry &o : out)
+            if (o.col > e.tcol + 1 && o.col < e.tend && grid[e.row][o.col - 1].glyph == ' ' && grid[e.row][o.col - 2].glyph == ' ')
+                e.tend = o.col;
     // a lone "x) text" / "x. text" / "x: text" match is usually prose, not a menu;
     // a lone "x - text" (also + # =) is a real one-item menu (a single item to pick up,
     // drop, wield...) and gets its button instead of the keyboard (DC-06)
@@ -1399,15 +1410,32 @@ static void draw_play_top()
     if (!row)
         draw_text(cv, F_TEXT, mx0, my0 + 18, "nothing", C_DIM);
 
-    // --- level minimap (1 px per square), bottom of the right column (not when 320 wide)
+    // --- level minimap, bottom of the right column (not when 320 wide): 2 px per square, so the
+    // explored part reads as a map (at 1 px a whole level was a 20 px smudge, CRAWL-U4). The box
+    // is 67 x 35 squares: the explored part centred in it when it fits, else the part around you.
+    // (The whole level is on the map button.)
     if (!g_top_narrow)
     {
-        const int ox = 400 - GXM - 4, oy = map_oy;
-        cv_fill(cv, ox - 2, oy - 2, GXM + 4, GYM + 4, 6, 6, 10);
+        const int MW = 67, MH = 35, S = 2;
+        const int ox = 400 - MW * S - 4, oy = map_oy;
+        int x0 = GXM, x1 = -1, y0 = GYM, y1 = -1;
         for (int y = 0; y < GYM; ++y)
             for (int x = 0; x < GXM; ++x)
+                if (env.map_knowledge(coord_def(x, y)).known())
+                {
+                    x0 = std::min(x0, x); x1 = std::max(x1, x);
+                    y0 = std::min(y0, y); y1 = std::max(y1, y);
+                }
+        const coord_def me = map_bounds(you.pos()) ? you.pos() : coord_def(GXM / 2, GYM / 2);
+        int wx = x1 - x0 + 1 <= MW && x1 >= x0 ? x0 - (MW - (x1 - x0 + 1)) / 2 : me.x - MW / 2;
+        int wy = y1 - y0 + 1 <= MH && y1 >= y0 ? y0 - (MH - (y1 - y0 + 1)) / 2 : me.y - MH / 2;
+        wx = std::max(0, std::min(GXM - MW, wx));
+        wy = std::max(0, std::min(GYM - MH, wy));
+        cv_fill(cv, ox - 2, oy - 2, MW * S + 4, MH * S + 4, 6, 6, 10);
+        for (int y = 0; y < MH; ++y)
+            for (int x = 0; x < MW; ++x)
             {
-                const coord_def gc(x, y);
+                const coord_def gc(wx + x, wy + y);
                 const map_cell &mc = env.map_knowledge(gc);
                 if (!mc.known())
                     continue;
@@ -1419,21 +1447,24 @@ static void draw_play_top()
                 if (feat_is_stair(f))                    r = 250, g = 220, b = 60;
                 if (mc.monsterinfo() && you.see_cell(gc)) r = 240, g = 60, b = 60;
                 if (gc == you.pos())                     r = g = b = 255;
-                uint8_t *p = cv.at(ox + x, oy + y);
-                p[0] = r; p[1] = g; p[2] = b;
+                cv_fill(cv, ox + x * S, oy + y * S, S, S, r, g, b);
             }
-        // the bottom map's window
+        // the bottom map's window, clipped to the box
+        int fc, fr, fw, fh;
         if (g_zoom == 0)
-            cv_frame(cv, ox + vcentre.x - MAP_CC, oy + vcentre.y - MAP_CR, MAP_COLS, MAP_ROWS, 120, 120, 160);
+            fc = vcentre.x - MAP_CC, fr = vcentre.y - MAP_CR, fw = MAP_COLS, fh = MAP_ROWS;
         else
         {
             // the part of the zoomed map actually on screen
             const int zts = zoom_ts();
             const int c0 = std::max(0, (0 - zoom_ox()) / zts), r0 = std::max(0, (0 - zoom_oy()) / zts);
-            const int vis_c = 320 / zts, vis_r = 240 / zts;
             const coord_def g0 = zoom_cell_grid(c0, r0);
-            cv_frame(cv, ox + g0.x, oy + g0.y, vis_c, vis_r, 120, 120, 160);
+            fc = g0.x; fr = g0.y; fw = 320 / zts; fh = 240 / zts;
         }
+        const int fx0 = std::max(0, fc - wx), fy0 = std::max(0, fr - wy);
+        const int fx1 = std::min(MW, fc - wx + fw), fy1 = std::min(MH, fr - wy + fh);
+        if (fx1 > fx0 && fy1 > fy0)
+            cv_frame(cv, ox + fx0 * S, oy + fy0 * S, (fx1 - fx0) * S, (fy1 - fy0) * S, 120, 120, 160);
     }
 
     // --- messages, in the 6x13 font (66 columns), newest at the bottom.
@@ -1792,13 +1823,44 @@ void lib3ds_set_actions(const std::vector<std::pair<std::string, int>> &actions)
     bottom_dirty = true;
 }
 
+// A menu with more entries than fit as buttons (the species and background pickers) is shown a
+// page at a time: Pg Dn / Pg Up (and L / R) turn the port's own pages first, and only then go to
+// crawl as its own paging keys. entries_pages is set by draw_text_mode_bottom.
+static int entries_pages = 1;
+static unsigned entries_sig = 0;
+static char pg_up_label[12] = "Pg Up", pg_dn_label[12] = "Pg Dn";
+static bool page_entries(int dir)   // true: the port turned its own page
+{
+    if (entries_pages <= 1)
+        return false;
+    const int to = entries_scroll + dir;
+    if (to < 0 || to >= entries_pages)
+        return false;
+    entries_scroll = to;
+    bottom_dirty = true;
+    return true;
+}
+
 static void build_text_mode_buttons()
 {
     buttons.clear();
     const int by = 240 - 6 - 30, bw = 58;   // rule 11
+    if (entries_pages > 1)
+    {
+        snprintf(pg_up_label, sizeof pg_up_label, "%s", entries_scroll > 0 ? "Back" : "Pg Up");
+        if (entries_scroll + 1 < entries_pages)
+            snprintf(pg_dn_label, sizeof pg_dn_label, "More %d/%d", entries_scroll + 1, entries_pages);
+        else
+            snprintf(pg_dn_label, sizeof pg_dn_label, "%s", "Pg Dn");
+    }
+    else
+    {
+        snprintf(pg_up_label, sizeof pg_up_label, "%s", "Pg Up");
+        snprintf(pg_dn_label, sizeof pg_dn_label, "%s", "Pg Dn");
+    }
     const struct { const char *l; int k; int s; } bar[] = {
-        { "Esc", ESCAPE, 0 }, { "Enter", CK_ENTER, 0 }, { "Pg Up", '<', 0 },
-        { "Pg Dn", '>', 0 }, { "Keys", 0, BS_KEYBOARD },
+        { "Esc", ESCAPE, 0 }, { "Enter", CK_ENTER, 0 }, { pg_up_label, '<', 0 },
+        { pg_dn_label, '>', 0 }, { "Keys", 0, BS_KEYBOARD },
     };
     for (int i = 0; i < 5; ++i)
         buttons.push_back({ 6 + i * (bw + 4), by, bw, 30, bar[i].l, bar[i].k, bar[i].s, 0 });
@@ -1810,24 +1872,53 @@ static void draw_text_mode_bottom()
     Canvas &cv = bot_cv;
     cv_fill(cv, 0, 0, 320, 240, 14, 14, 22);
     cur_entries = find_menu_entries();
-    build_text_mode_buttons();
     const int n = (int)cur_entries.size();
     int cols = 1, rows = n;   // set below, once the action buttons' height is known
     // action buttons (item descriptions) sit right above the bar
     const int na = (int)g_actions.size(), acols = 3, arows = (na + acols - 1) / acols;
     const int abh = 28, agap = 4, alimit = 240 - 6 - 30 - (na ? arows * (abh + agap) : 0);
+    const int nbar = 5 + na;
+    // rule 11: entry rows are 24-px buttons, 4 px apart, 6 px from the edges; a long menu
+    // uses more columns, and what still doesn't fit is on further pages (More / Back, L / R)
+    const int rowh = 28, maxrows = std::max(1, (alimit - 4 - 6 + 4) / rowh);
+    auto label_len = [&](const menu_entry &e) {
+        int tend = e.tend;
+        while (tend > e.tcol && grid[e.row][tend - 1].glyph == ' ')
+            --tend;
+        return tend - e.tcol;
+    };
+    int longest = 0;
+    for (const menu_entry &e : cur_entries)
+        longest = std::max(longest, label_len(e));
+    // text-fit rule (CRAWL-U2): fewer columns when a label would not fit on one line in the
+    // normal font (the pickers drew some labels on two lines in the small font)
+    // (a menu of more than two columns' worth of entries keeps two columns, in the small font
+    // if it must: one column would mean leafing through many pages)
+    cols = n <= maxrows ? 1 : n <= 2 * maxrows ? 2 : 3;
+    while (cols > 1 && longest * F_TEXT.w > (308 + 4) / cols - 4 - 17 - 1)
+    {
+        if (cols == 2 && n > 2 * maxrows)
+            break;
+        --cols;
+    }
+    rows = std::min(maxrows, (n + cols - 1) / cols);
+    const int per_page = std::max(1, rows * cols);
+    {   // pages: a different menu starts on its first page again
+        unsigned sig = (unsigned)n * 2654435761u;
+        for (const menu_entry &e : cur_entries)
+            sig = sig * 31u + (unsigned)(e.key * 131 + e.row * 7 + e.col);
+        if (sig != entries_sig) { entries_sig = sig; entries_scroll = 0; }
+        entries_pages = (n + per_page - 1) / per_page;
+        if (entries_pages < 1) entries_pages = 1;
+        if (entries_scroll >= entries_pages) entries_scroll = entries_pages - 1;
+    }
+    build_text_mode_buttons();
     for (int i = 0; i < na; ++i)
     {
         const int aw = (320 - 12 - agap * (acols - 1)) / acols;
         const int ax = 6 + (i % acols) * (aw + agap), ay = alimit + (i / acols) * (abh + agap);
         buttons.push_back({ ax, ay, aw, abh, g_actions[i].first.c_str(), g_actions[i].second, 0, 0 });
     }
-    const int nbar = 5 + na;
-    // rule 11: entry rows are 24-px buttons, 4 px apart, 6 px from the edges; a long menu
-    // uses more columns, and what still doesn't fit is reached with Pg Dn (or the keyboard)
-    const int rowh = 28, maxrows = std::max(1, (alimit - 4 - 6 + 4) / rowh);
-    cols = n <= maxrows ? 1 : n <= 2 * maxrows ? 2 : 3;
-    rows = (n + cols - 1) / cols;
     const int colw = (308 + 4) / cols;
     if (cur_entries.empty() && na)
         draw_text(cv, F_TEXT, 8, 8, "Tap an action:", C_DIM);
@@ -1838,17 +1929,19 @@ static void draw_text_mode_bottom()
         draw_text(cv, F_TEXT, 8, 48, lefty_on() ? "D-Right = Enter   D-Down = Esc   A/B/X/Y = move" : "A = Enter   B = Esc   D-pad = move", C_DIM);
         draw_text(cv, F_TEXT, 8, 64, "L / R = page up / down", C_DIM);
     }
-    for (int i = 0; i < n && i < rows * cols; ++i)
+    for (int j = 0; j < per_page && entries_scroll * per_page + j < n; ++j)
     {
+        const int i = entries_scroll * per_page + j;
         const menu_entry &e = cur_entries[i];
-        const int cc = i / rows, rr = i % rows;
+        const int cc = j / rows, rr = j % rows;
         const int x = 6 + cc * colw, y = 6 + rr * rowh;
         if (y + rowh - 4 > alimit - 4)
             continue;
-        // dim entries crawl draws in dark grey (unavailable choices)
+        // Entries crawl draws in dark grey (the choices it does not recommend) still work, so
+        // their buttons look like the others; only the label is a lighter grey than white.
         const int tfg = grid[e.row][e.tcol].fg;
         const bool dim = tfg == DARKGREY;
-        cv_fill(cv, x, y, colw - 4, rowh - 4, dim ? 22 : 30, dim ? 22 : 32, dim ? 30 : 46);
+        cv_fill(cv, x, y, colw - 4, rowh - 4, 30, 32, 46);
         // a choice on a named key shows an arrow, not a letter: "<" goes back (Bksp, Esc)
         char k[2] = { e.named ? ((e.key == CK_BKSP || e.key == ESCAPE) ? '<' : '>') : (char)e.key, 0 };
         cv_fill(cv, x + 2, y + (rowh - 4 - 14) / 2, 12, 14, 70, 70, 110);
@@ -1866,7 +1959,7 @@ static void draw_text_mode_bottom()
         {
             const cell_t &c = grid[e.row][gx];
             if (c.glyph != ' ')
-                draw_char(cv, f, cx, cy, c.glyph, pal(c.fg == BLACK ? LIGHTGREY : c.fg), nullptr);
+                draw_char(cv, f, cx, cy, c.glyph, dim ? C_DIM : pal(c.fg == BLACK ? LIGHTGREY : c.fg), nullptr);
         };
         if (len * F_TEXT.w <= avail)
             for (int i2 = 0; i2 < len; ++i2)
@@ -1957,12 +2050,23 @@ static void ui_tap_feedback()
     bottom_dirty = true;
 }
 static void build_keyboard();
+static bool kb_last_cmds = false;   // the keys button reopens the page last used (letters or Cmds)
+static bool g_prompt = false;       // crawl is reading typed text (set by auto_keyboard)
+// Every way the keyboard closes ends here: Shft and Ctrl never stay latched for the next time,
+// and it reopens on the letters unless the keys button asks for the Cmds page.
+static void kb_closed()
+{
+    sticky_shift = sticky_ctrl = false;
+    if (kb_cmd_page) { kb_cmd_page = false; build_keyboard(); }
+    pressed_key_index = -1;
+    top_dirty = bottom_dirty = true;   // swapped screens come back when it closes
+}
 static void ui_feedback_tick()
 {
     if (kb_close_pending && osGetTime() >= press_until)
     {
         kb_close_pending = false;
-        if (kb_cmd_page) { kb_cmd_page = false; build_keyboard(); }   // reopen on the letters
+        kb_closed();
         keyboard_overlay = false;
         kb_dismissed = false;   // a prompt that follows (Search, Travel) may open it again
         kb_auto = false;
@@ -2089,7 +2193,8 @@ static void draw_keyboard()
             label = bright;
         }
         const Font &f = strlen(label) == 1 ? F_BOLD : F_TEXT;
-        draw_text(cv, f, k.x + (k.w - text_width(f, label)) / 2, k.y + (k.h - f.h) / 2 + (down_k ? 1 : 0), label, C_WHITE);
+        draw_text(cv, f, k.x + (k.w - text_width(f, label)) / 2, k.y + (k.h - f.h) / 2 + (down_k ? 1 : 0), label,
+                  k.special == SKEY_CLOSE ? C_GOLD : C_WHITE);   // the way out stands out
     }
 }
 
@@ -2240,8 +2345,17 @@ static void press_button(const button &b)
     if (b.special == BS_KEYBOARD)
     {
         keyboard_overlay = true;
+        // in the dungeon the keys button reopens the page last used: the Cmds page after a
+        // quick command, the letters after typing (CRAWL-X3: commands two taps away, not three)
+        const bool cmds = !crt_mode && kb_last_cmds;
+        if (kb_cmd_page != cmds) { kb_cmd_page = cmds; build_keyboard(); }
+        top_dirty = bottom_dirty = true;
         return;
     }
+    // Pg Up / Pg Dn turn the port's own pages of buttons before they go to crawl
+    if (crt_mode && (b.key == '<' || b.key == '>') && b.label && (b.label == pg_up_label || b.label == pg_dn_label)
+        && page_entries(b.key == '>' ? 1 : -1))
+        return;
     if (b.key)
         keyq.push_back(b.key);
 }
@@ -2259,17 +2373,19 @@ static void auto_keyboard()
     // pages): the keyboard (with arrows, Enter, Esc) is the useful thing
     if (!prompt && crt_mode && find_menu_entries().empty())
         prompt = true;
+    g_prompt = prompt;
     if (!prompt)
         kb_dismissed = false;
     if (prompt && !keyboard_overlay && !kb_dismissed)
     {
+        if (kb_cmd_page) { kb_cmd_page = false; build_keyboard(); }   // typing: the letters
         keyboard_overlay = kb_auto = true;
-        bottom_dirty = true;
+        top_dirty = bottom_dirty = true;
     }
     else if (!prompt && kb_auto)
     {
         keyboard_overlay = kb_auto = false;
-        bottom_dirty = true;
+        kb_closed();
     }
 }
 
@@ -2403,11 +2519,11 @@ static void pm_rect(int i, int &x, int &y, int &w, int &h)
 {
     if (pm_page == 0)
     {
-        w = 200; h = 30; x = (320 - w) / 2; y = 34 + i * 37;
+        w = 308; h = 30; x = 6; y = 34 + i * 37;   // full width, as in the other ports
     }
     else
     {
-        w = 110; h = 34; y = 130; x = i == 0 ? 40 : 170;
+        w = 150; h = 40; y = 130; x = i == 0 ? 6 : 164;
     }
 }
 
@@ -2457,11 +2573,24 @@ static void draw_port_menu()
         pm_button(cv, 0, "YES");
         pm_button(cv, 1, "NO");
     }
-    cv_fill(cv, 0, 224, 320, 16, 40, 56, 120);
-    cv_fill(cv, 0, 224, 320, 1, 120, 150, 230);
-    // crawl's own text screens (title, menus) never swap (swap_on), so ZL is only offered where it shows
-    const char *hint = pm_page == 0 && !crt_mode ? "A Select   B Back   ZL Swap" : "A Select   B Back";
-    draw_text(cv, F_SMALL, (320 - text_width(F_SMALL, hint)) / 2, 228, hint, C_HDR);
+    cv_fill(cv, 0, 222, 320, 18, 40, 56, 120);
+    cv_fill(cv, 0, 222, 320, 1, 120, 150, 230);
+    // The house footer, in the normal font, naming the buttons that really work (left-hand mode
+    // swaps the D-pad and A/B/X/Y). crawl's own text screens never swap (swap_on), so ZL is only
+    // offered where it shows.
+    const bool lh = lefty_on();
+    const char *hint = pm_page == 1 ? (lh ? "D-Right choose   D-Down no" : "A choose   B no")
+                     : !crt_mode ? (lh ? "D-Right choose  D-Down/START resume  ZL swap" : "A choose   B / START resume   ZL swap")
+                     : (lh ? "D-Right choose   D-Down / START resume" : "A choose   B / START resume");
+    draw_text(cv, F_TEXT, (320 - text_width(F_TEXT, hint)) / 2, 225, hint, C_HDR);
+    if (!swap_on())
+    {   // the top screen says the game is waiting (it kept looking live)
+        Canvas &tc = top_cv;
+        const char *p = "MENU OPEN: THE GAME WAITS";
+        cv_fill(tc, 0, 222, 400, 18, 40, 56, 120);
+        cv_fill(tc, 0, 222, 400, 1, 120, 150, 230);
+        draw_text(tc, F_TEXT, (400 - text_width(F_TEXT, p)) / 2, 225, p, C_HDR);
+    }
     cv_present(top_cv);
     cv_present(bot_cv);
 }
@@ -2509,6 +2638,7 @@ static void pm_act(int i)
         keyboard_overlay = !keyboard_overlay;
         kb_dismissed = !keyboard_overlay;
         kb_auto = false;
+        if (!keyboard_overlay) kb_closed();
         break;
     case 3: cycle_brightness(); draw_port_menu(); break;
     case 4: pm_page = 1; pm_focus = 1; draw_port_menu(); break;
@@ -2635,7 +2765,8 @@ static void poll_input()
         keyboard_overlay = !keyboard_overlay;
         kb_dismissed = !keyboard_overlay;
         kb_auto = false;
-        bottom_dirty = true;
+        if (!keyboard_overlay) kb_closed();
+        top_dirty = bottom_dirty = true;
     }
 
     const bool yesno = !crt_mode && yesno_prompt_visible();
@@ -2655,13 +2786,43 @@ static void poll_input()
             }
         }
     }
+    // Which meaning a button has. Text meaning (A Enter, B Esc, L / R page): on crawl's text screens,
+    // and in the dungeon only while crawl reads typed text. With the keyboard merely open in the
+    // dungeon the buttons keep their play meaning, except that L / R do nothing (the map they
+    // zoom is hidden) and B closes the keyboard. L / R never send the paging keys < and > in the
+    // dungeon: there they are "go up" and "go down" and would take a staircase (CRAWL-Q1).
+    const bool text_keys = crt_mode || (keyboard_overlay && g_prompt);
     for (const keymap_3ds &m : button_map)
     {
         const bool is_dir = m.button & (KEY_DUP | KEY_DDOWN | KEY_DLEFT | KEY_DRIGHT);
         if ((is_dir ? rep : down) & m.button)
         {
-            int k = crt_mode || keyboard_overlay ? m.text : m.play;
+            if (keyboard_overlay)
+                sticky_shift = sticky_ctrl = false, bottom_dirty = true;   // a latch never changes a button
+            if (!crt_mode && (m.button & (KEY_L | KEY_R)))
+                continue;                                    // zoom (above) or nothing; never < or >
+            if (m.button == KEY_B && keyboard_overlay && !g_prompt)
+            {   // B closes a keyboard that was opened by hand (CRAWL-Q2, X2)
+                keyboard_overlay = kb_auto = false;
+                kb_dismissed = true;
+                kb_closed();
+                continue;
+            }
+            int k = text_keys ? m.text : m.play;
             if (!k)
+                continue;
+            // L / R on a text screen: the port's own pages of buttons first
+            if (crt_mode && !keyboard_overlay && (m.button & (KEY_L | KEY_R)) && page_entries(m.button == KEY_R ? 1 : -1))
+                continue;
+            // B at the plain command prompt has nothing to cancel: crawl answered every press with
+            // "Unknown command." and pushed real news off the message lines (CRAWL-Q5). It still
+            // interrupts explore, travel and rest, and cancels targeting, prompts and menus.
+            if (!crt_mode && !text_keys && m.button == KEY_B && !yesno && !more
+                && !g_prompt && mouse_control::current_mode() == MOUSE_MODE_COMMAND && !you_are_delayed() && !you.running)
+                continue;
+            // X while already exploring: carry on (crawl took the press as an interruption and
+            // said "Key pressed, stopping explore.", CRAWL-X4). B stops it.
+            if (!crt_mode && !text_keys && m.button == KEY_X && (you.running == RMODE_EXPLORE || you.running == RMODE_EXPLORE_GREEDY))
                 continue;
             if (yesno && m.button == KEY_A) k = 'Y';   // uppercase: accepted by every yes/no prompt
             if (yesno && m.button == KEY_B) k = 'N';
@@ -2753,9 +2914,7 @@ static void poll_input()
                 {
                     keyboard_overlay = kb_auto = false;
                     kb_dismissed = true;
-                    kb_cmd_page = false;
-                    build_keyboard();
-                    pressed_key_index = -1;
+                    kb_closed();
                     return;
                 }
                 if (k.special == SKEY_PAGE)
@@ -2782,6 +2941,7 @@ static void poll_input()
                     sticky_shift = sticky_ctrl = false;
                     keyq.push_back(k.key);
                     kb_close_pending = true;
+                    kb_last_cmds = true;
                 }
                 else
                 {
@@ -2790,6 +2950,8 @@ static void poll_input()
                         key = k.shifted, sticky_shift = false;
                     if (sticky_ctrl && key > 0 && key < 128 && isalpha(key))
                         key = CONTROL(toupper(key)), sticky_ctrl = false;
+                    if (k.shifted)
+                        kb_last_cmds = false;   // typing letters: the keys button reopens on them
                     keyq.push_back(key);
                 }
             }
@@ -3657,6 +3819,10 @@ int getch_ck()
     }
     const int k = keyq.front();
     keyq.pop_front();
+    // crawl's main menu quits the program on Esc at once, with no question; B ("back") from the
+    // name box threw the player out (CRAWL-Q4). There Esc does nothing: START > EXIT GAME leaves.
+    if (k == ESCAPE && crt_mode && grid_row_text(0).find("welcome to Dungeon Crawl") != std::string::npos)
+        return getch_ck();
     return k;
 }
 
