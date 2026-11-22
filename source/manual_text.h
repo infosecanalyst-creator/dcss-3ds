@@ -64,7 +64,7 @@ Buttons run down both edges, outside your line of sight, so they never hide a mo
 | L | zoom the dungeon map out |
 | R | zoom the dungeon map in (three levels; remembered) |
 | C-Stick up | inventory (press again to close) |
-| ZL | swap the screens in the dungeon and the manual: the map fills the top screen, the status and messages move to the touch screen (laid out for it), and the touch screen becomes a touchpad (slide moves the pointer, tap taps there). Crawl's full-screen text pages (menus, character sheet, title) stay on top so they stay readable |
+| ZL | swap the screens in the dungeon and the manual: the map fills the top screen, the status and messages move to the touch screen (laid out for it), and the touch screen becomes a touchpad (slide moves the pointer, tap taps there). Crawl's full-screen text pages (menus, character sheet) stay on top so they stay readable |
 | ZR | cast a spell (press again to close) |
 | Select | touch keyboard |
 | START | menu (resume, manual, keyboard, brightness, exit); the game waits while it is open |
@@ -124,7 +124,9 @@ Crawl's hints and help name the 3DS controls:
 
 # Your first game
 ## Picking a character
-On the main menu pick Dungeon Crawl, then a species and a background. Good first characters:
+The first screen is the main menu. The touch screen lists the games as buttons: tap Dungeon Crawl for a new character, or your saved game (it is in the list, and after the first game the top button, quick-load last game, goes straight back to it). The top screen shows the name the new character will get: Hero the first time, afterwards the last name you used. To change it tap Keys, tap Bksp, type the name and tap Close.
+
+Then pick a species and a background (and sometimes a weapon). Each list is a page of buttons; More and Back, or L and R, turn the pages. The top screen explains the choice in the normal font. Good first characters:
 - Minotaur Fighter: strong, tough, simple.
 - Gargoyle Fighter: hard to hurt.
 - Troll Fighter (claws): heals fast, hits hard.

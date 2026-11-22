@@ -12,6 +12,8 @@
 - The keys button reopens the page last used (letters or Cmds), so a quick command is two taps away.
 - The top screen's level map is drawn at two dots per square (it was one: a smudge).
 - "explr" is spelled out: explore.
+- Main menu: every game and saved game is a button on the touch screen (it was a text list worked with a keyboard), and "quick-load last game" is the first button once there is one. The name box starts filled in (Hero the first time, then the last name used), so there is no empty name prompt and no second name question after the weapon.
+- Before the dungeon (main menu, species, background, weapon, name question) the top screen shows a card in the normal font with the screen's heading and explanation, instead of 80 columns of 5 px text with PC key hints.
 - The game's own help (? in the dungeon) no longer stops the game: its three help files (manual, aptitudes, quick start) were missing from the program and are built in now.
 - The first start no longer builds the databases and level cache for minutes: they come ready-made inside the program (about 11 MB more). The old build on the SD card remains as a fallback, and now also lists the databases as it builds them.
 - Long menus page properly: dragging on the touch screen, Pg Up / Pg Dn and L / R now send the keys Crawl's menus really use (before, some of them did nothing).

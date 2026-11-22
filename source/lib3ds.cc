@@ -1013,7 +1013,7 @@ struct button
     unsigned tile;           // icon (gui/main tile), 0 = text only
 };
 
-enum { BS_NONE = 0, BS_KEYBOARD, BS_HIDE, BS_YES, BS_NO };
+enum { BS_NONE = 0, BS_KEYBOARD, BS_HIDE, BS_YES, BS_NO, BS_SEQ = 100 };   // BS_SEQ + n: the n-th key sequence (main menu)
 
 static std::vector<button> buttons;     // rebuilt per frame
 static int pressed_button = -1;
@@ -1157,7 +1157,74 @@ static bool more_prompt_visible()
 
 // Menu entries in text mode: "x - text", "x + text", "x # text", "x) text",
 // "x. text" or "x: text", possibly several per row (multi-column menus).
-struct menu_entry { int key; int row; int col; int tcol; int tend; bool dashed; bool named; };   // dashed: "x - text" style; named: on Bksp, Tab...
+struct menu_entry { int key; int row; int col; int tcol; int tend; bool dashed; bool named; int seq; };   // dashed: "x - text" style; named: on Bksp, Tab...; seq: 1 + index into g_seq (0 = one key)
+
+// crawl's main menu (name box, the list of games, the saved games) has no hotkeys: a choice is
+// made by moving the highlight and pressing Enter. To give every row a button, each one gets the
+// keys that do exactly that from where the highlight is now (CRAWL-X1).
+static std::vector<std::vector<int>> g_seq;
+static int entries_pages = 1;      // pages of entry buttons on the touch screen (set by draw_text_mode_bottom)
+static std::string g_mm_name;      // the name in the box, for the top card
+static bool g_mm_named_box = false;
+
+static bool main_menu_entries(std::vector<menu_entry> &out)
+{
+    int name_row = -1, choices_row = -1;
+    for (int y = 0; y < GRID_H; ++y)
+    {
+        const std::string t = grid_row_text(y, 0, 20);
+        if (t.compare(0, 16, "Enter your name:") == 0) name_row = y;
+        else if (t.compare(0, 8, "Choices:") == 0) choices_row = y;
+    }
+    g_mm_named_box = name_row >= 0 && choices_row > name_row;
+    if (!g_mm_named_box)
+        return false;
+    {
+        std::string n = grid_row_text(name_row, 16);
+        while (!n.empty() && n[0] == ' ') n.erase(0, 1);
+        g_mm_name = n;
+    }
+    int L = 8;
+    while (L < GRID_W && grid[choices_row][L].glyph == ' ') ++L;
+    if (L >= GRID_W - 4)
+        return false;
+    std::vector<int> rows;
+    int hi = -1;
+    for (int y = choices_row; y < GRID_H; ++y)
+    {
+        if (grid[y][L].glyph == ' ')
+            continue;
+        bool lead_blank = true;
+        for (int x = 0; x < L && lead_blank; ++x)
+            lead_blank = grid[y][x].glyph == ' ';
+        const std::string lead = grid_row_text(y, 0, L);
+        if (!lead_blank && lead != "Choices:" && lead != "Saved games:")
+            continue;                       // the instructions and the description under the lists
+        if ((grid[y][L].bg & 15) != BLACK)
+            hi = (int)rows.size();
+        rows.push_back(y);
+    }
+    if (rows.empty() || hi < 0)
+        return false;                       // no highlight to count from: leave it to the keyboard
+    g_seq.clear();
+    out.clear();
+    for (int y = 0; y < GRID_H; ++y)        // "[tab] quick-load last game: ..." comes first
+        if (grid_row_text(y, 0, 5) == "[tab]" && grid[y][5].glyph == ' ' && grid[y][6].glyph != ' ')
+        {
+            out.push_back({ '\t', y, 0, 6, GRID_W, false, true, 0 });
+            break;
+        }
+    for (size_t i = 0; i < rows.size(); ++i)
+    {
+        std::vector<int> keys;
+        for (int k = hi; k < (int)i; ++k) keys.push_back(CK_DOWN);
+        for (int k = (int)i; k < hi; ++k) keys.push_back(CK_UP);
+        keys.push_back(CK_ENTER);
+        g_seq.push_back(keys);
+        out.push_back({ 0, rows[i], L, L, GRID_W, false, true, (int)g_seq.size() });
+    }
+    return true;
+}
 
 static bool menu_key_char(char32_t k)
 {
@@ -1167,6 +1234,9 @@ static bool menu_key_char(char32_t k)
 static std::vector<menu_entry> find_menu_entries()
 {
     std::vector<menu_entry> out;
+    if (main_menu_entries(out))
+        return out;
+    out.clear();
     for (int y = 0; y < GRID_H; ++y)
     {
         std::vector<menu_entry> row;
@@ -1203,7 +1273,7 @@ static std::vector<menu_entry> find_menu_entries()
                         ++t2;
                     if (t2 >= GRID_W)
                         continue;
-                    row.push_back({ nk.key, y, x, t2, GRID_W, true, true });
+                    row.push_back({ nk.key, y, x, t2, GRID_W, true, true, 0 });
                     x = t2;
                     hit = true;
                     break;
@@ -1223,7 +1293,7 @@ static std::vector<menu_entry> find_menu_entries()
                 ++t;
             if (t >= GRID_W || grid[y][t].glyph == ' ')
                 continue;
-            row.push_back({ (int)k, y, x, t, GRID_W, a == ' ', false });
+            row.push_back({ (int)k, y, x, t, GRID_W, a == ' ', false, 0 });
             x = t;
         }
         for (size_t i = 0; i < row.size(); ++i)
@@ -1272,9 +1342,137 @@ static std::vector<menu_entry> find_menu_entries()
 
 static const uint8_t *pal(int c) { return palette[c & 15]; }
 
+// Before the dungeon (main menu, species, background, weapon, the name question) crawl's 80
+// columns only fit the top screen in the 5 px font, and they name PC keys. The choices are
+// buttons on the touch screen already, so the top screen shows a card in the normal font
+// instead: the screen's own heading and explanation, re-wrapped, without the choice lists and
+// the key hints (CRAWL-U1, X1). A screen with more text than the card holds (the help pages,
+// the high scores) is drawn as before. Returns false when the card is not used.
+static bool draw_pregame_card()
+{
+    if (you.save)
+        return false;
+    const std::vector<menu_entry> ents = find_menu_entries();
+    bool name_question = false;
+    for (int y = 0; y < GRID_H && !name_question; ++y)
+        name_question = grid_row_text(y).find("What is your name") != std::string::npos;
+    // only the main menu, the pickers (a list of choices) and the name question; other screens
+    // (the seed form, help, high scores) keep crawl's own layout
+    if (!g_mm_named_box && ents.empty() && !name_question)
+        return false;
+    std::vector<bool> entry_row(GRID_H, false);
+    for (const menu_entry &e : ents)
+        entry_row[e.row] = true;
+    {   // every row inside the block of choices goes (a group heading can sit alone on one);
+        // the block ends at the first gap of more than two rows (after it: the footer choices)
+        int first = -1, last = -1;
+        for (int y = 0; y < GRID_H; ++y)
+            if (entry_row[y])
+            {
+                if (first < 0) first = y;
+                else if (y - last > 2) break;
+                last = y;
+            }
+        for (int y = first; first >= 0 && y <= last; ++y)
+            entry_row[y] = true;
+    }
+    struct Para { std::string text; int kind; };   // kind 0 text, 1 heading, 2 hint
+    std::vector<Para> paras;
+    if (g_mm_named_box)
+    {
+        paras.push_back({ "Dungeon Crawl Stone Soup", 1 });
+        paras.push_back({ "Name: " + (g_mm_name.empty() ? std::string("(none yet)") : g_mm_name), 0 });
+        paras.push_back({ "Tap a game on the touch screen to start. A saved game is in the list too.", 0 });
+        paras.push_back({ "To change the name: tap Keys, tap Bksp, type the name, tap Close.", 2 });
+    }
+    {
+        std::string cur;
+        bool first = !g_mm_named_box;
+        auto flush = [&]() {
+            if (!cur.empty()) { paras.push_back({ cur, first ? 1 : 0 }); first = false; }
+            cur.clear();
+        };
+        for (int y = 0; y < GRID_H; ++y)
+        {
+            std::string t = grid_row_text(y);
+            if (cursor_is_enabled && y == cy && !entry_row[y] && !g_mm_named_box)   // typed text: show the cursor
+            {
+                while ((int)t.size() < cx) t += ' ';
+                t.insert((size_t)cx, "_");
+            }
+            size_t a = 0;
+            while (a < t.size() && t[a] == ' ') ++a;
+            t.erase(0, a);
+            bool skip = entry_row[y] || t.empty();
+            if (!skip && t[0] == '[')
+                skip = true;                                   // "[ctrl-p] view rc file..." key hints
+            if (!skip && t.find("   ") != std::string::npos)
+                skip = true;                                   // a row of column headings
+            if (!skip && g_mm_named_box
+                && (t.compare(0, 6, "Hello,") == 0 || t.compare(0, 3, "(c)") == 0 || t.compare(0, 16, "Enter your name:") == 0
+                    || t.compare(0, 8, "Choices:") == 0 || t.compare(0, 12, "Saved games:") == 0))
+                skip = true;                                   // said by the card itself
+            if (skip) { flush(); continue; }
+            if (!cur.empty()) cur += ' ';
+            cur += t;
+        }
+        flush();
+    }
+    if (name_question && ents.empty())
+        paras.push_back({ "Type a name on the touch keyboard, then tap Enter.", 2 });
+    if (!ents.empty())
+        paras.push_back({ entries_pages > 1 ? "Tap a choice on the touch screen. More and Back (or L / R) turn its pages." : "Tap a choice on the touch screen.", 2 });
+    // wrap to 64 columns and see whether it fits (14 px lines, y 30..218)
+    const int COLS = 64, LH = 14, Y0 = 30, MAXL = (220 - Y0) / LH;
+    struct Line { std::string text; int kind; };
+    std::vector<Line> lines;
+    for (size_t p = 0; p < paras.size(); ++p)
+    {
+        const std::string &s = paras[p].text;
+        size_t i = 0;
+        while (i < s.size())
+        {
+            size_t n = std::min(s.size() - i, (size_t)COLS);
+            if (i + n < s.size())
+            {
+                size_t k = n;
+                while (k > 8 && s[i + k] != ' ') --k;
+                if (k > 8) n = k;
+            }
+            lines.push_back({ s.substr(i, n), paras[p].kind });
+            i += n;
+            while (i < s.size() && s[i] == ' ') ++i;
+        }
+        if (p + 1 < paras.size())
+            lines.push_back({ "", 0 });
+    }
+    if (lines.empty() || (int)lines.size() > MAXL)
+        return false;
+    for (const Line &l : lines)                                // ASCII only: the wrap counts bytes
+        for (unsigned char ch : l.text)
+            if (ch >= 128)
+                return false;
+    Canvas &cv = top_cv;
+    g_top_narrow = false;
+    static const uint8_t C_HDR[3] = {255, 204, 64};
+    cv_fill(cv, 0, 0, 400, 240, 8, 12, 40);
+    cv_fill(cv, 0, 0, 400, 22, 40, 56, 120);
+    cv_fill(cv, 0, 22, 400, 1, 120, 150, 230);
+    draw_text(cv, F_BOLD, 8, 5, "DUNGEON CRAWL STONE SOUP", C_HDR);
+    for (size_t i = 0; i < lines.size(); ++i)
+        draw_text(cv, lines[i].kind == 1 ? F_BOLD : F_TEXT, 8, Y0 + (int)i * LH, lines[i].text.c_str(),
+                  lines[i].kind == 1 ? C_HDR : lines[i].kind == 2 ? C_DIM : C_WHITE);
+    cv_fill(cv, 0, 222, 400, 18, 4, 6, 20);
+    const char *hint = "START menu";
+    draw_text(cv, F_TEXT, (400 - text_width(F_TEXT, hint)) / 2, 225, hint, C_HDR);
+    return true;
+}
+
 // Text mode: the whole 80x24 grid in the 5x8 font (5x10 cells).
 static void draw_text_mode_top()
 {
+    if (draw_pregame_card())
+        return;
     Canvas &cv = top_cv;
     g_top_narrow = false;
     cv_fill(cv, 0, 0, 400, 240, 8, 8, 12);
@@ -1826,7 +2024,6 @@ void lib3ds_set_actions(const std::vector<std::pair<std::string, int>> &actions)
 // A menu with more entries than fit as buttons (the species and background pickers) is shown a
 // page at a time: Pg Dn / Pg Up (and L / R) turn the port's own pages first, and only then go to
 // crawl as its own paging keys. entries_pages is set by draw_text_mode_bottom.
-static int entries_pages = 1;
 static unsigned entries_sig = 0;
 static char pg_up_label[12] = "Pg Up", pg_dn_label[12] = "Pg Dn";
 static bool page_entries(int dir)   // true: the port turned its own page
@@ -1988,7 +2185,7 @@ static void draw_text_mode_bottom()
                     put(F_SMALL, e.tcol + s2 + i2, px + i2 * F_SMALL.w, y2);
             }
         }
-        buttons.push_back({ x, y, colw - 4, rowh - 4, "", e.key, 0, 0 });
+        buttons.push_back({ x, y, colw - 4, rowh - 4, "", e.key, e.seq ? BS_SEQ + e.seq - 1 : 0, 0 });
     }
     for (int i = 0; i < nbar; ++i)
         draw_button(cv, buttons[i], i == pressed_button, false);
@@ -2350,6 +2547,14 @@ static void press_button(const button &b)
         const bool cmds = !crt_mode && kb_last_cmds;
         if (kb_cmd_page != cmds) { kb_cmd_page = cmds; build_keyboard(); }
         top_dirty = bottom_dirty = true;
+        return;
+    }
+    if (b.special >= BS_SEQ)
+    {   // a main menu row: move the highlight to it, then Enter
+        const size_t n = (size_t)(b.special - BS_SEQ);
+        if (n < g_seq.size())
+            for (int k : g_seq[n])
+                keyq.push_back(k);
         return;
     }
     // Pg Up / Pg Dn turn the port's own pages of buttons before they go to crawl

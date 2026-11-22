@@ -750,6 +750,21 @@ rw("describe.cc",
    "_3ds_actions({});\n#endif\n\n    return action;")
 
 # -------------------------------------------------------------- new files
+# ------------------------------------------------------------- startup.cc
+# The main menu's name box starts filled in on the very first run (after that crawl remembers
+# the last name): a first-time player can tap a game at once instead of facing an empty box and
+# a keyboard, and is not asked for a name again after choosing a weapon (CRAWL-X1).
+rw("startup.cc",
+   "    if (crawl_state.default_startup_name.size() == 0 && Options.remember_name)\n"
+   "        crawl_state.default_startup_name = defaults.name;\n",
+   "    if (crawl_state.default_startup_name.size() == 0 && Options.remember_name)\n"
+   "        crawl_state.default_startup_name = defaults.name;\n"
+   "#ifdef TARGET_OS_3DS\n"
+   "    if (crawl_state.default_startup_name.empty())   // 3DS: a first name to start with\n"
+   "        crawl_state.default_startup_name = \"Hero\";\n"
+   "#endif\n",
+   "3DS: a first name to start with")
+
 for f in ("lib3ds.cc", "lib3ds.h", "keytext3ds.h", "font5x8.h", "font6x13.h", "font6x13b.h", "manual3ds.h", "manual_text.h"):
     shutil.copy(os.path.join(PORT, f), os.path.join(SRC, f))
     print("  + %-14s copied" % f)

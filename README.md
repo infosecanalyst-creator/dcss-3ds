@@ -93,7 +93,9 @@ from crawl's `rltiles` sheets).
   automatically: the text appears on the top screen in 5×8, and the bottom
   screen turns every menu entry into a touch row (one to three columns; a
   list too long for one screen is paged with More / Back),
-  with Esc / Enter / Page up / Page down / Keys buttons. Text prompts open
+  with Esc / Enter / Page up / Page down / Keys buttons. The main menu's games and saved
+  games are buttons too, and before the dungeon the top screen shows a
+  readable card (heading and explanation) instead of the 5×8 text. Text prompts open
   the touch keyboard by themselves.
 
 ## Controls
