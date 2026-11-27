@@ -1382,8 +1382,8 @@ static bool draw_pregame_card()
     {
         paras.push_back({ "Dungeon Crawl Stone Soup", 1 });
         paras.push_back({ "Name: " + (g_mm_name.empty() ? std::string("(none yet)") : g_mm_name), 0 });
-        paras.push_back({ "Tap a game on the touch screen to start. A saved game is in the list too.", 0 });
-        paras.push_back({ "To change the name: tap Keys, tap Bksp, type the name, tap Close.", 2 });
+        paras.push_back({ "Tap a game on the touch screen. Saved games are in the list too.", 0 });
+        paras.push_back({ "To change the name: Keys, Bksp, type it, Close.", 2 });
     }
     {
         std::string cur;
@@ -1421,9 +1421,9 @@ static bool draw_pregame_card()
     if (name_question && ents.empty())
         paras.push_back({ "Type a name on the touch keyboard, then tap Enter.", 2 });
     if (!ents.empty())
-        paras.push_back({ entries_pages > 1 ? "Tap a choice on the touch screen. More and Back (or L / R) turn its pages." : "Tap a choice on the touch screen.", 2 });
+        paras.push_back({ entries_pages > 1 ? "Tap a choice. More and Back (or L / R) turn the pages." : "Tap a choice on the touch screen.", 2 });
     // wrap to 64 columns and see whether it fits (14 px lines, y 30..218)
-    const int COLS = 64, LH = 14, Y0 = 30, MAXL = (220 - Y0) / LH;
+    const int COLS = 64, LH = 13, Y0 = 28, MAXL = (222 - Y0) / LH;
     struct Line { std::string text; int kind; };
     std::vector<Line> lines;
     for (size_t p = 0; p < paras.size(); ++p)
@@ -1443,7 +1443,7 @@ static bool draw_pregame_card()
             i += n;
             while (i < s.size() && s[i] == ' ') ++i;
         }
-        if (p + 1 < paras.size())
+        if (p + 1 < paras.size() && paras[p + 1].kind != 2)   // a hint sits right under its text
             lines.push_back({ "", 0 });
     }
     if (lines.empty() || (int)lines.size() > MAXL)
