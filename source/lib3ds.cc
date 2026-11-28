@@ -2717,14 +2717,16 @@ static int  pm_page = 0;          // 0 = main list, 1 = exit confirm
 static int  pm_focus = 0;
 static int  pm_pressed = -1, pm_press_frames = 0;
 
-static const char *const kPmItems[] = { "RESUME", "MANUAL", "KEYBOARD", "BRIGHTNESS", "EXIT GAME" };
-static const int kPmCount = 5;
+// House order (cross-port pass): RESUME, MANUAL, then this port's pages, LEFT HAND, EXIT GAME.
+// No SAVE / LOAD rows: Crawl saves only when you leave (one character, no save slots).
+static const char *const kPmItems[] = { "RESUME", "MANUAL", "KEYBOARD", "BRIGHTNESS", "LEFT HAND: OFF", "EXIT GAME" };
+static const int kPmCount = 6, kPmExit = 5, kPmLefty = 4;
 
 static void pm_rect(int i, int &x, int &y, int &w, int &h)
 {
     if (pm_page == 0)
     {
-        w = 308; h = 30; x = 6; y = 34 + i * 37;   // full width, as in the other ports
+        w = 308; h = 28; x = 6; y = 30 + i * 32;   // full width, as in the other ports; 6 rows end at y 218
     }
     else
     {
@@ -2768,13 +2770,16 @@ static void draw_port_menu()
         const char *ver = "Build " PORT_VERSION;
         draw_text(cv, F_SMALL, 320 - 8 - text_width(F_SMALL, ver), 7, ver, C_WHITE);
         for (int i = 0; i < kPmCount; ++i)
-            pm_button(cv, i, kPmItems[i]);
+            pm_button(cv, i, i == kPmLefty ? (lefty_on() ? "LEFT HAND: ON" : "LEFT HAND: OFF") : kPmItems[i]);
     }
     else
     {
         draw_text(cv, F_BOLD, 8, 5, "EXIT GAME", C_HDR);
-        const char *q = "Save and exit to the 3DS menu?";
-        draw_text(cv, F_TEXT, (320 - text_width(F_TEXT, q)) / 2, 80, q, C_WHITE);
+        // house wording (cross-port pass): "Exit <game>?" and whether it is saved first
+        const char *q = "Exit Dungeon Crawl?";
+        const char *q2 = you.save ? "It is saved first." : "No game is running: nothing to save.";
+        draw_text(cv, F_BOLD, (320 - text_width(F_BOLD, q)) / 2, 72, q, C_WHITE);
+        draw_text(cv, F_TEXT, (320 - text_width(F_TEXT, q2)) / 2, 96, q2, C_WHITE);
         pm_button(cv, 0, "YES");
         pm_button(cv, 1, "NO");
     }
@@ -2830,7 +2835,7 @@ static void pm_act(int i)
     {
         if (i == 0)
             pm_do_exit();
-        pm_page = 0; pm_focus = 4;
+        pm_page = 0; pm_focus = kPmExit;
         draw_port_menu();
         return;
     }
@@ -2846,7 +2851,8 @@ static void pm_act(int i)
         if (!keyboard_overlay) kb_closed();
         break;
     case 3: cycle_brightness(); draw_port_menu(); break;
-    case 4: pm_page = 1; pm_focus = 1; draw_port_menu(); break;
+    case 4: set_lefty(!lefty_on()); draw_port_menu(); break;   // the same switch as the manual's
+    case 5: pm_page = 1; pm_focus = 1; draw_port_menu(); break;
     }
 }
 
@@ -2862,7 +2868,7 @@ static bool port_menu_input(u32 down, u32 rep)
     if (down & (KEY_B | KEY_START))
     {
         pm_click();
-        if (pm_page == 1) { pm_page = 0; pm_focus = 4; draw_port_menu(); }
+        if (pm_page == 1) { pm_page = 0; pm_focus = kPmExit; draw_port_menu(); }
         else pm_close();
         return pm_open;
     }

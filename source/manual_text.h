@@ -8,7 +8,7 @@ Your goal is to find the Orb of Zot in the depths of the dungeon and carry it ba
 ## This port
 The New 3DS version is the full game with Crawl's own tile art. The touch screen is the dungeon and the top screen shows your character, the monsters in view, a map and the messages.
 
-Press START at any time for the menu: Resume, Manual, Keyboard, Brightness and Exit Game. Manual opens this text; the game waits while you read.
+Press START at any time for the menu: Resume, Manual, Keyboard, Brightness, Left Hand and Exit Game. Manual opens this text; the game waits while you read.
 
 ## Using this manual
 - Circle Pad or C-Stick up/down: scroll the text (hold to keep scrolling).
@@ -67,14 +67,14 @@ Buttons run down both edges, outside your line of sight, so they never hide a mo
 | ZL | swap the screens in the dungeon and the manual: the map fills the top screen, the status and messages move to the touch screen (laid out for it), and the touch screen becomes a touchpad (slide moves the pointer, tap taps there). Crawl's full-screen text pages (menus, character sheet) stay on top so they stay readable |
 | ZR | cast a spell (press again to close) |
 | Select | touch keyboard |
-| START | menu (resume, manual, keyboard, brightness, exit); the game waits while it is open |
+| START | menu (resume, manual, keyboard, brightness, left hand, exit); the game waits while it is open |
 | HOME | save and quit |
 
 ## On questions and menus
 A answers Yes and continues past --more--. B answers No or backs out.
 
 ## Left-handed play
-At the bottom of the manual's touch screen, "Left hand" swaps the D-pad with the A, B, X and Y buttons: Y and Up, A and Right, B and Down, X and Left. It is remembered, and applies to this manual too.
+At the bottom of the manual's touch screen, "Left hand" (or START, then Left Hand) swaps the D-pad with the A, B, X and Y buttons: Y and Up, A and Right, B and Down, X and Left. It is remembered, and applies to this manual too.
 
 # Menus and typing
 Menus (inventory, spells, character creation, shops) appear on the top screen. The touch screen lists every choice as a big button: tap one to pick it.
@@ -173,7 +173,7 @@ Effects show in colour on the top screen under your stats: for example Poison, S
 - New effects are also announced in the messages.
 
 # Saving and loading
-- START, then Exit Game (YES) saves the game and quits, as does HOME then Close. Your character is waiting on the main menu next time.
+- START, then Exit Game asks "Exit Dungeon Crawl?" (NO is chosen; B goes back); YES saves the game and quits, as does HOME then Close. Your character is waiting on the main menu next time.
 - There is one save per character. Death is permanent: the game ends and goes to the high scores.
 - Saves, morgue files (a record of each game) and your settings are in sdmc:/3ds/crawl/.
 - The program is sdmc:/3ds/crawl.3dsx, directly in /3ds, not in the crawl folder.

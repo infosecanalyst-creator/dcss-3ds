@@ -1,5 +1,10 @@
 # Changelog
 
+## 2026-11-27
+
+- Same as the other 3DS ports (cross-port pass): the START menu has a LEFT HAND row (the same switch as the manual's "Left hand"), before EXIT GAME. Rows are 28 px tall so six fit.
+- The exit question reads "Exit Dungeon Crawl?" with "It is saved first." under it (it was "Save and exit to the 3DS menu?"). YES left, NO right, NO chosen, B goes back, as before.
+
 ## 2026-11-21
 
 - Touch keyboard open in the dungeon: L and R no longer send "go up" / "go down" (on a staircase they took the stairs); they do nothing there. B closes the keyboard. Shft and Ctrl never stay latched: they are let go when the keyboard closes or a button is pressed. Close is in gold.

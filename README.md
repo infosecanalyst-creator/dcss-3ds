@@ -113,7 +113,7 @@ from crawl's `rltiles` sheets).
 | ZR | cast | |
 | C-Stick up | inventory | |
 | Select | touch keyboard | touch keyboard |
-| START | port menu: resume, manual, keyboard, brightness, exit (asks first) | the same |
+| START | port menu: resume, manual, keyboard, brightness, left hand, exit (asks "Exit Dungeon Crawl?", NO chosen) | the same |
 | HOME | crawl saves and exits | |
 
 ## Where things live on the 3DS
